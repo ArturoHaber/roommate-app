@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -10,8 +11,9 @@ export const FinanceWidget = () => {
     const navigation = useNavigation<any>();
 
     // Mock Calculation
-    const netBalance = -5.50; // Negative means "You owe"
+    const netBalance = -25.50; // Negative means "You owe"
     const isOwe = netBalance < 0;
+    const pendingTransactions = 3;
 
     return (
         <TouchableOpacity
@@ -19,28 +21,51 @@ export const FinanceWidget = () => {
             onPress={() => navigation.navigate('Expenses')}
             style={styles.container}
         >
-            <View style={styles.card}>
-                <View style={styles.leftContent}>
-                    <View style={[styles.iconContainer, isOwe ? styles.iconOwe : styles.iconSettled]}>
-                        <Feather
-                            name={isOwe ? 'arrow-up-right' : 'check'}
-                            size={20}
-                            color={isOwe ? COLORS.warning : COLORS.success}
-                        />
-                    </View>
-                    <View>
-                        <Text style={styles.label}>Your Share</Text>
-                        <Text style={[styles.amount, isOwe ? { color: COLORS.warning } : { color: COLORS.textPrimary }]}>
-                            {isOwe ? `-$${Math.abs(netBalance).toFixed(2)}` : 'Settled'}
+            <LinearGradient
+                colors={[COLORS.gray800, COLORS.gray900] as const}
+                style={styles.card}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+            >
+                {/* Main Balance Section */}
+                <View style={styles.balanceSection}>
+                    <View style={styles.balanceHeader}>
+                        <View style={[styles.statusDot, isOwe ? styles.statusOwe : styles.statusSettled]} />
+                        <Text style={styles.balanceLabel}>
+                            {isOwe ? 'You Owe' : 'All Settled'}
                         </Text>
                     </View>
+
+                    <Text style={[styles.balanceAmount, isOwe && styles.balanceOwe]}>
+                        {isOwe ? `$${Math.abs(netBalance).toFixed(2)}` : '✓'}
+                    </Text>
+
+                    {pendingTransactions > 0 && (
+                        <Text style={styles.pendingText}>
+                            {pendingTransactions} pending transaction{pendingTransactions > 1 ? 's' : ''}
+                        </Text>
+                    )}
                 </View>
 
-                <View style={styles.rightContent}>
-                    <Text style={styles.actionText}>Details</Text>
-                    <Feather name="chevron-right" size={16} color={COLORS.textSecondary} />
+                {/* Quick Actions */}
+                <View style={styles.actions}>
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.primaryAction]}
+                        onPress={() => navigation.navigate('Expenses')}
+                    >
+                        <Feather name="plus" size={16} color={COLORS.white} />
+                        <Text style={styles.actionTextPrimary}>Add</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={() => navigation.navigate('Expenses')}
+                    >
+                        <Feather name="send" size={14} color={COLORS.primary} />
+                        <Text style={styles.actionTextSecondary}>Settle</Text>
+                    </TouchableOpacity>
                 </View>
-            </View>
+            </LinearGradient>
         </TouchableOpacity>
     );
 };
@@ -51,53 +76,79 @@ const styles = StyleSheet.create({
         paddingHorizontal: SPACING.lg,
     },
     card: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: SPACING.md,
+        padding: SPACING.lg,
         borderRadius: BORDER_RADIUS.xl,
-        backgroundColor: COLORS.gray900,
         borderWidth: 1,
-        borderColor: COLORS.gray800,
-        ...SHADOWS.sm,
+        borderColor: COLORS.gray700,
+        ...SHADOWS.md,
     },
-    leftContent: {
+    balanceSection: {
+        marginBottom: SPACING.lg,
+    },
+    balanceHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: SPACING.md,
+        marginBottom: SPACING.xs,
     },
-    iconContainer: {
-        width: 40,
-        height: 40,
+    statusDot: {
+        width: 8,
+        height: 8,
         borderRadius: BORDER_RADIUS.full,
-        justifyContent: 'center',
-        alignItems: 'center',
+        marginRight: SPACING.xs,
     },
-    iconOwe: {
-        backgroundColor: COLORS.warning + '20',
+    statusOwe: {
+        backgroundColor: COLORS.warning,
     },
-    iconSettled: {
-        backgroundColor: COLORS.success + '20',
+    statusSettled: {
+        backgroundColor: COLORS.success,
     },
-    label: {
+    balanceLabel: {
         fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
         fontWeight: '600',
         textTransform: 'uppercase',
+        letterSpacing: 1,
     },
-    amount: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '700',
+    balanceAmount: {
+        fontSize: 36,
+        fontWeight: '800',
         color: COLORS.textPrimary,
+        letterSpacing: -1,
     },
-    rightContent: {
+    balanceOwe: {
+        color: COLORS.warning,
+    },
+    pendingText: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+        marginTop: 4,
+    },
+    actions: {
+        flexDirection: 'row',
+        gap: SPACING.sm,
+    },
+    actionButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: SPACING.sm,
+        paddingHorizontal: SPACING.md,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray700,
+        flex: 1,
     },
-    actionText: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textSecondary,
-        fontWeight: '500',
+    primaryAction: {
+        backgroundColor: COLORS.primary,
+    },
+    actionTextPrimary: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.white,
+    },
+    actionTextSecondary: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.primary,
     },
 });

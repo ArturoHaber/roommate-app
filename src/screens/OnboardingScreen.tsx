@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
+import {
+  View,
+  Text,
+  StyleSheet,
   TextInput,
   SafeAreaView,
   KeyboardAvoidingView,
@@ -58,7 +58,7 @@ export const OnboardingScreen: React.FC = () => {
   if (step === 'welcome') {
     return (
       <LinearGradient colors={GRADIENTS.primary} style={styles.container}>
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -71,7 +71,7 @@ export const OnboardingScreen: React.FC = () => {
               Manage chores, split expenses, and live in harmony
             </Text>
           </View>
-          
+
           <View style={styles.welcomeFooter}>
             <TouchableOpacity
               style={styles.getStartedButton}
@@ -90,11 +90,11 @@ export const OnboardingScreen: React.FC = () => {
   if (step === 'name') {
     return (
       <SafeAreaView style={styles.containerLight}>
-        <KeyboardAvoidingView 
+        <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.backButton}
             onPress={() => setStep('welcome')}
           >
@@ -149,11 +149,11 @@ export const OnboardingScreen: React.FC = () => {
   if (step === 'household') {
     return (
       <SafeAreaView style={styles.containerLight}>
-        <KeyboardAvoidingView 
+        <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.backButton}
             onPress={() => setStep('name')}
           >
@@ -243,8 +243,8 @@ export const OnboardingScreen: React.FC = () => {
                 onPress={householdChoice === 'create' ? handleCreateHousehold : handleJoinHousehold}
                 fullWidth
                 disabled={
-                  householdChoice === 'create' 
-                    ? !householdName.trim() 
+                  householdChoice === 'create'
+                    ? !householdName.trim()
                     : !inviteCode.trim()
                 }
               />
@@ -351,11 +351,13 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   input: {
-    backgroundColor: COLORS.gray100,
+    backgroundColor: COLORS.gray800,
     borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md,
     fontSize: FONT_SIZE.md,
     color: COLORS.textPrimary,
+    borderWidth: 1,
+    borderColor: COLORS.gray700,
   },
   codeInput: {
     fontSize: FONT_SIZE.xxl,
@@ -373,18 +375,18 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   choiceCard: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.gray800,
     borderRadius: BORDER_RADIUS.lg,
     padding: SPACING.lg,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.gray700,
   },
   choiceIcon: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.gray100,
+    backgroundColor: COLORS.gray700,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: SPACING.md,

@@ -66,23 +66,24 @@ export const HouseStatus = () => {
                 {/* Divider */}
                 <View style={styles.divider} />
 
-                {/* Cleanliness Indicator */}
+                {/* House Health Entry Point - Clearly Clickable */}
                 <TouchableOpacity
-                    style={styles.cleanlinessContainer}
+                    style={styles.healthCard}
                     onPress={() => navigation.navigate('HousePulse' as never)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.8}
                 >
-                    <View style={styles.cleanlinessHeader}>
-                        <Text style={styles.cleanlinessLabel}>HOUSE CLEANLINESS</Text>
-                        <Text style={[styles.cleanlinessValue, { color: COLORS.success }]}>Sparkling ✨</Text>
+                    <View style={styles.healthLeft}>
+                        <View style={styles.healthIconContainer}>
+                            <Feather name="activity" size={20} color={COLORS.success} />
+                        </View>
+                        <View>
+                            <Text style={styles.healthLabel}>HOUSE HEALTH</Text>
+                            <Text style={[styles.healthValue, { color: COLORS.success }]}>72% - Sparkling ✨</Text>
+                        </View>
                     </View>
-                    <View style={styles.progressBarBg}>
-                        <LinearGradient
-                            colors={[COLORS.success, '#34D399']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={[styles.progressBarFill, { width: '85%' }]}
-                        />
+                    <View style={styles.healthRight}>
+                        <Text style={styles.tapHint}>Details</Text>
+                        <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
                     </View>
                 </TouchableOpacity>
             </LinearGradient>
@@ -220,36 +221,52 @@ const styles = StyleSheet.create({
     divider: {
         height: 1,
         backgroundColor: COLORS.gray800,
-        marginBottom: SPACING.lg,
+        marginBottom: SPACING.md,
     },
-    cleanlinessContainer: {
-        marginTop: SPACING.xs,
-    },
-    cleanlinessHeader: {
+    // House Health Entry Card
+    healthCard: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: SPACING.sm,
+        backgroundColor: COLORS.gray700 + '50',
+        padding: SPACING.md,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
     },
-    cleanlinessLabel: {
+    healthLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.md,
+    },
+    healthIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.success + '20',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    healthLabel: {
         fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
         fontWeight: '600',
         letterSpacing: 0.5,
+        textTransform: 'uppercase',
     },
-    cleanlinessValue: {
-        fontSize: FONT_SIZE.sm,
+    healthValue: {
+        fontSize: FONT_SIZE.md,
         fontWeight: '700',
     },
-    progressBarBg: {
-        height: 6,
-        backgroundColor: COLORS.gray800,
-        borderRadius: BORDER_RADIUS.full,
-        overflow: 'hidden',
+    healthRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
     },
-    progressBarFill: {
-        height: '100%',
-        borderRadius: BORDER_RADIUS.full,
+    tapHint: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        fontWeight: '500',
     },
     // Modal Styles
     modalOverlay: {
@@ -267,7 +284,7 @@ const styles = StyleSheet.create({
         maxWidth: 340,
         borderWidth: 1,
         borderColor: COLORS.gray800,
-        ...SHADOWS.xl,
+        ...SHADOWS.lg,
     },
     modalHeader: {
         flexDirection: 'row',

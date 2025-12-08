@@ -1,29 +1,137 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, StatusBar } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, GRADIENTS } from '../constants/theme';
-import { ProgressRing } from '../components';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 
 // Mock Data
 const ROOM_STATS = [
-    { id: 'kitchen', name: 'Kitchen', score: 45, status: 'Critical', color: '#EF4444' },
-    { id: 'living', name: 'Living Room', score: 92, status: 'Sparkling', color: '#34D399' },
-    { id: 'bath', name: 'Bathroom', score: 78, status: 'Good', color: '#FBBF24' },
+    { id: 'kitchen', name: 'Kitchen', score: 45, icon: 'coffee', lastCleaned: '2 days ago' },
+    { id: 'living', name: 'Living Room', score: 92, icon: 'tv', lastCleaned: 'Today' },
+    { id: 'bath', name: 'Bathroom', score: 78, icon: 'droplet', lastCleaned: 'Yesterday' },
+    { id: 'bedroom', name: 'Bedroom', score: 88, icon: 'moon', lastCleaned: 'Today' },
 ];
 
-const THE_ROT = [
-    { id: '1', item: 'Trash', level: 90, label: 'Overflowing', color: '#EF4444' },
-    { id: '2', item: 'Dishes', level: 60, label: 'Piling Up', color: '#FBBF24' },
-    { id: '3', item: 'Floors', level: 20, label: 'Clean', color: '#34D399' },
-];
+// Premium Animated Gauge Component
+const HealthGauge = ({ score, size = 220 }: { score: number; size?: number }) => {
+    const strokeWidth = 14;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = radius * 2 * Math.PI;
+    const strokeDashoffset = circumference - (score / 100) * circumference;
+
+    const getGradientColors = (score: number) => {
+        if (score >= 80) return { start: '#10B981', end: '#34D399' }; // Success
+        if (score >= 50) return { start: '#F59E0B', end: '#FBBF24' }; // Warning
+        return { start: '#EF4444', end: '#F87171' }; // Error
+    };
+
+    const colors = getGradientColors(score);
+
+    const getStatusText = (score: number) => {
+        if (score >= 90) return { emoji: '✨', text: 'Sparkling' };
+        if (score >= 75) return { emoji: '👍', text: 'Looking Good' };
+        if (score >= 50) return { emoji: '🧹', text: 'Needs Love' };
+        return { emoji: '🚿', text: 'Time to Clean' };
+    };
+
+    const status = getStatusText(score);
+
+    return (
+        <View style={styles.gaugeContainer}>
+            {/* Glow Effect Background */}
+            <View style={[styles.gaugeGlow, { backgroundColor: colors.start + '15' }]} />
+
+            <Svg width={size} height={size}>
+                <Defs>
+                    <SvgGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <Stop offset="0%" stopColor={colors.start} />
+                        <Stop offset="100%" stopColor={colors.end} />
+                    </SvgGradient>
+                </Defs>
+
+                {/* Background Track */}
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    stroke={COLORS.gray800}
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                />
+
+                {/* Progress Arc with Gradient */}
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    stroke="url(#grad)"
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    strokeLinecap="round"
+                    transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                />
+            </Svg>
+
+            {/* Center Content */}
+            <View style={styles.gaugeCenter}>
+                <Text style={styles.gaugeScore}>{score}</Text>
+                <View style={styles.gaugeLabelContainer}>
+                    <Text style={styles.gaugeLabel}>HEALTH</Text>
+                </View>
+            </View>
+
+            {/* Status Badge Below Gauge */}
+            <View style={styles.statusContainer}>
+                <Text style={styles.statusEmoji}>{status.emoji}</Text>
+                <Text style={styles.statusText}>{status.text}</Text>
+            </View>
+        </View>
+    );
+};
+
+// Room Health Card Component
+const RoomCard = ({ room }: { room: typeof ROOM_STATS[0] }) => {
+    const getScoreColor = (score: number) => {
+        if (score >= 80) return COLORS.success;
+        if (score >= 50) return COLORS.warning;
+        return COLORS.error;
+    };
+
+    const color = getScoreColor(room.score);
+
+    return (
+        <TouchableOpacity style={styles.roomCard} activeOpacity={0.8}>
+            <View style={styles.roomLeft}>
+                <View style={[styles.roomIcon, { backgroundColor: color + '20' }]}>
+                    <Feather name={room.icon as any} size={22} color={color} />
+                </View>
+                <View>
+                    <Text style={styles.roomName}>{room.name}</Text>
+                    <Text style={styles.roomSubtext}>Cleaned {room.lastCleaned}</Text>
+                </View>
+            </View>
+
+            <View style={styles.roomRight}>
+                <View style={styles.roomScoreContainer}>
+                    <Text style={[styles.roomScoreValue, { color }]}>{room.score}</Text>
+                    <Text style={styles.roomScorePercent}>%</Text>
+                </View>
+                <View style={styles.roomProgressBar}>
+                    <View style={[styles.roomProgressFill, { width: `${room.score}%`, backgroundColor: color }]} />
+                </View>
+            </View>
+        </TouchableOpacity>
+    );
+};
 
 export const HousePulseScreen = () => {
     const navigation = useNavigation();
-    const [isBlitzActive, setIsBlitzActive] = useState(false);
-
-    const overallScore = 72; // Calculated from rooms
+    const overallScore = 72;
+    const streakDays = 5;
+    const weeklyImprovement = 8;
 
     return (
         <SafeAreaView style={styles.container}>
@@ -34,91 +142,63 @@ export const HousePulseScreen = () => {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                     <Feather name="arrow-left" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>House Pulse</Text>
-                <TouchableOpacity style={styles.menuButton}>
-                    <Feather name="more-horizontal" size={24} color={COLORS.textPrimary} />
-                </TouchableOpacity>
+                <Text style={styles.headerTitle}>House Health</Text>
+                <View style={{ width: 40 }} />
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                {/* Hero Section */}
-                <View style={styles.heroSection}>
-                    <View style={styles.scoreContainer}>
-                        <ProgressRing
-                            progress={overallScore / 100}
-                            size={180}
-                            strokeWidth={15}
-                            color={overallScore > 80 ? COLORS.success : overallScore > 50 ? COLORS.warning : COLORS.error}
-                        />
-                        <View style={styles.scoreTextContainer}>
-                            <Text style={styles.scoreValue}>{overallScore}</Text>
-                            <Text style={styles.scoreLabel}>HEALTH</Text>
-                        </View>
+
+                {/* Premium Health Gauge */}
+                <HealthGauge score={overallScore} />
+
+                {/* Quick Stats Row */}
+                <View style={styles.statsRow}>
+                    <View style={styles.statCard}>
+                        <Text style={styles.statEmoji}>🔥</Text>
+                        <Text style={styles.statValue}>{streakDays}</Text>
+                        <Text style={styles.statLabel}>Day Streak</Text>
                     </View>
-                    <Text style={styles.heroStatus}>
-                        {overallScore > 80 ? "Sparkling Clean ✨" : overallScore > 50 ? "Needs Attention 🧹" : "Disaster Zone 🚨"}
-                    </Text>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statCard}>
+                        <Text style={styles.statEmoji}>📈</Text>
+                        <Text style={[styles.statValue, { color: COLORS.success }]}>+{weeklyImprovement}%</Text>
+                        <Text style={styles.statLabel}>This Week</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statCard}>
+                        <Text style={styles.statEmoji}>🏆</Text>
+                        <Text style={styles.statValue}>3</Text>
+                        <Text style={styles.statLabel}>Badges</Text>
+                    </View>
                 </View>
 
-                {/* Blitz Mode Button */}
-                <TouchableOpacity
-                    style={styles.blitzButton}
-                    onPress={() => setIsBlitzActive(!isBlitzActive)}
-                    activeOpacity={0.8}
-                >
-                    <LinearGradient
-                        colors={isBlitzActive ? ['#EF4444', '#DC2626'] : [COLORS.primary, '#4F46E5']}
-                        style={styles.blitzGradient}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                    >
-                        <Feather name={isBlitzActive ? "x-circle" : "zap"} size={24} color={COLORS.white} />
-                        <View>
-                            <Text style={styles.blitzTitle}>{isBlitzActive ? "CANCEL BLITZ" : "BLITZ MODE"}</Text>
-                            <Text style={styles.blitzSubtitle}>{isBlitzActive ? "Timer Running..." : "Trigger 15m Clean Timer"}</Text>
-                        </View>
-                    </LinearGradient>
-                </TouchableOpacity>
+                {/* Room Health Section */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Room Health</Text>
+                    <TouchableOpacity>
+                        <Text style={styles.sectionAction}>History</Text>
+                    </TouchableOpacity>
+                </View>
 
-                {/* Room Radar */}
-                <Text style={styles.sectionTitle}>Room Radar</Text>
-                <View style={styles.gridContainer}>
+                <View style={styles.roomList}>
                     {ROOM_STATS.map((room) => (
-                        <View key={room.id} style={styles.roomCard}>
-                            <View style={styles.roomHeader}>
-                                <Text style={styles.roomName}>{room.name}</Text>
-                                <Text style={[styles.roomScore, { color: room.color }]}>{room.score}%</Text>
-                            </View>
-                            <View style={styles.progressBarBg}>
-                                <View style={[styles.progressBarFill, { width: `${room.score}%`, backgroundColor: room.color }]} />
-                            </View>
-                            <Text style={styles.roomStatus}>{room.status}</Text>
-                        </View>
+                        <RoomCard key={room.id} room={room} />
                     ))}
                 </View>
 
-                {/* The Rot (Issues) */}
-                <Text style={styles.sectionTitle}>The Rot Tracker</Text>
-                <View style={styles.rotContainer}>
-                    {THE_ROT.map((item) => (
-                        <View key={item.id} style={styles.rotItem}>
-                            <View style={styles.rotIcon}>
-                                <Feather name={item.item === 'Trash' ? 'trash-2' : item.item === 'Dishes' ? 'coffee' : 'layers'} size={20} color={COLORS.textSecondary} />
-                            </View>
-                            <View style={styles.rotContent}>
-                                <View style={styles.rotHeader}>
-                                    <Text style={styles.rotName}>{item.item}</Text>
-                                    <Text style={[styles.rotLabel, { color: item.color }]}>{item.label}</Text>
-                                </View>
-                                <View style={styles.progressBarBg}>
-                                    <View style={[styles.progressBarFill, { width: `${item.level}%`, backgroundColor: item.color }]} />
-                                </View>
-                            </View>
-                            <TouchableOpacity style={styles.snitchButton}>
-                                <Feather name="alert-circle" size={20} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-                    ))}
+                {/* Insight Card */}
+                <View style={styles.insightCard}>
+                    <View style={styles.insightHeader}>
+                        <Feather name="trending-up" size={18} color={COLORS.primary} />
+                        <Text style={styles.insightTitle}>Weekly Insight</Text>
+                    </View>
+                    <Text style={styles.insightText}>
+                        Your Kitchen has been below 50% for 3 days. A quick 10-minute clean could boost your overall score by 15 points!
+                    </Text>
+                    <TouchableOpacity style={styles.insightButton}>
+                        <Text style={styles.insightButtonText}>Start Kitchen Clean</Text>
+                        <Feather name="arrow-right" size={16} color={COLORS.primary} />
+                    </TouchableOpacity>
                 </View>
 
             </ScrollView>
@@ -139,10 +219,12 @@ const styles = StyleSheet.create({
         paddingVertical: SPACING.md,
     },
     backButton: {
-        padding: SPACING.xs,
-    },
-    menuButton: {
-        padding: SPACING.xs,
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     headerTitle: {
         fontSize: FONT_SIZE.lg,
@@ -150,145 +232,214 @@ const styles = StyleSheet.create({
         color: COLORS.textPrimary,
     },
     content: {
-        padding: SPACING.lg,
-        paddingBottom: SPACING.xxl,
+        paddingHorizontal: SPACING.lg,
+        paddingBottom: 100,
     },
-    heroSection: {
+
+    // Premium Gauge
+    gaugeContainer: {
         alignItems: 'center',
-        marginBottom: SPACING.xl,
-    },
-    scoreContainer: {
+        marginBottom: SPACING.lg,
         position: 'relative',
+    },
+    gaugeGlow: {
+        position: 'absolute',
+        width: 280,
+        height: 280,
+        borderRadius: 140,
+        top: -30,
+    },
+    gaugeCenter: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 60,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: SPACING.md,
     },
-    scoreTextContainer: {
-        position: 'absolute',
-        alignItems: 'center',
-    },
-    scoreValue: {
-        fontSize: 48,
+    gaugeScore: {
+        fontSize: 64,
         fontWeight: '800',
         color: COLORS.textPrimary,
+        letterSpacing: -2,
     },
-    scoreLabel: {
+    gaugeLabelContainer: {
+        marginTop: -4,
+    },
+    gaugeLabel: {
         fontSize: FONT_SIZE.xs,
         fontWeight: '700',
         color: COLORS.textSecondary,
-        letterSpacing: 2,
+        letterSpacing: 3,
     },
-    heroStatus: {
-        fontSize: FONT_SIZE.lg,
+    statusContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.xs,
+        marginTop: SPACING.md,
+    },
+    statusEmoji: {
+        fontSize: 20,
+    },
+    statusText: {
+        fontSize: FONT_SIZE.md,
         fontWeight: '600',
         color: COLORS.textSecondary,
     },
-    blitzButton: {
-        marginBottom: SPACING.xl,
-        ...SHADOWS.md,
-    },
-    blitzGradient: {
+
+    // Stats Row
+    statsRow: {
         flexDirection: 'row',
-        alignItems: 'center',
-        padding: SPACING.lg,
+        backgroundColor: COLORS.gray900,
         borderRadius: BORDER_RADIUS.xl,
-        gap: SPACING.md,
+        padding: SPACING.lg,
+        marginBottom: SPACING.xl,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
     },
-    blitzTitle: {
-        fontSize: FONT_SIZE.md,
+    statCard: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    statDivider: {
+        width: 1,
+        backgroundColor: COLORS.gray800,
+        marginHorizontal: SPACING.md,
+    },
+    statEmoji: {
+        fontSize: 24,
+        marginBottom: 4,
+    },
+    statValue: {
+        fontSize: FONT_SIZE.xl,
         fontWeight: '800',
-        color: COLORS.white,
-        letterSpacing: 1,
+        color: COLORS.textPrimary,
     },
-    blitzSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: 'rgba(255,255,255,0.8)',
+    statLabel: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
+
+    // Section Header
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.md,
     },
     sectionTitle: {
         fontSize: FONT_SIZE.md,
         fontWeight: '700',
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.md,
-        textTransform: 'uppercase',
-        letterSpacing: 1,
+        color: COLORS.textPrimary,
     },
-    gridContainer: {
+    sectionAction: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.primary,
+    },
+
+    // Room Cards
+    roomList: {
         gap: SPACING.md,
         marginBottom: SPACING.xl,
     },
     roomCard: {
-        backgroundColor: COLORS.gray800,
-        padding: SPACING.md,
-        borderRadius: BORDER_RADIUS.lg,
-        borderWidth: 1,
-        borderColor: COLORS.gray700,
-    },
-    roomHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: SPACING.sm,
+        alignItems: 'center',
+        backgroundColor: COLORS.gray900,
+        padding: SPACING.lg,
+        borderRadius: BORDER_RADIUS.xl,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    roomLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.md,
+    },
+    roomIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: BORDER_RADIUS.lg,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     roomName: {
         fontSize: FONT_SIZE.md,
         fontWeight: '600',
         color: COLORS.textPrimary,
     },
-    roomScore: {
-        fontWeight: '700',
+    roomSubtext: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+        marginTop: 2,
     },
-    progressBarBg: {
-        height: 6,
-        backgroundColor: COLORS.gray900,
+    roomRight: {
+        alignItems: 'flex-end',
+    },
+    roomScoreContainer: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+    },
+    roomScoreValue: {
+        fontSize: FONT_SIZE.xxl,
+        fontWeight: '800',
+    },
+    roomScorePercent: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
+        marginLeft: 1,
+    },
+    roomProgressBar: {
+        width: 60,
+        height: 4,
+        backgroundColor: COLORS.gray800,
         borderRadius: BORDER_RADIUS.full,
+        marginTop: 4,
         overflow: 'hidden',
-        marginBottom: 8,
     },
-    progressBarFill: {
+    roomProgressFill: {
         height: '100%',
         borderRadius: BORDER_RADIUS.full,
     },
-    roomStatus: {
-        fontSize: FONT_SIZE.xs,
+
+    // Insight Card
+    insightCard: {
+        backgroundColor: COLORS.primary + '10',
+        padding: SPACING.lg,
+        borderRadius: BORDER_RADIUS.xl,
+        borderWidth: 1,
+        borderColor: COLORS.primary + '30',
+    },
+    insightHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.sm,
+        marginBottom: SPACING.sm,
+    },
+    insightTitle: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '700',
+        color: COLORS.primary,
+    },
+    insightText: {
+        fontSize: FONT_SIZE.sm,
         color: COLORS.textSecondary,
-        textAlign: 'right',
+        lineHeight: 20,
+        marginBottom: SPACING.md,
     },
-    rotContainer: {
-        gap: SPACING.md,
-    },
-    rotItem: {
+    insightButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.gray800,
-        padding: SPACING.md,
-        borderRadius: BORDER_RADIUS.lg,
-        gap: SPACING.md,
+        gap: 4,
     },
-    rotIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: BORDER_RADIUS.full,
-        backgroundColor: COLORS.gray900,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    rotContent: {
-        flex: 1,
-    },
-    rotHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 6,
-    },
-    rotName: {
+    insightButtonText: {
         fontSize: FONT_SIZE.sm,
         fontWeight: '600',
-        color: COLORS.textPrimary,
-    },
-    rotLabel: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-    },
-    snitchButton: {
-        padding: SPACING.xs,
+        color: COLORS.primary,
     },
 });
