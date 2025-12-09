@@ -8,3 +8,4 @@ export { ProfileScreen } from './ProfileScreen';
 export { OnboardingScreen } from './OnboardingScreen';
 export { ChoresCalendarScreen } from './ChoresCalendarScreen';
 export { HouseBoardScreen } from './HouseBoardScreen';
+export { LogScreen } from './LogScreen';

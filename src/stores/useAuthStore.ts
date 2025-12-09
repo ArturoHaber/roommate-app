@@ -8,12 +8,13 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isOnboarded: boolean;
-  
+
   // Actions
   login: (name: string, email: string) => void;
   logout: () => void;
   setHousehold: (householdId: string) => void;
   completeOnboarding: () => void;
+  updateProfile: (updates: { name?: string; email?: string; avatarColor?: string }) => void;
 }
 
 const AVATAR_COLORS = [
@@ -61,6 +62,12 @@ export const useAuthStore = create<AuthState>()(
 
       completeOnboarding: () => {
         set({ isOnboarded: true });
+      },
+
+      updateProfile: (updates) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, ...updates } : null,
+        }));
       },
     }),
     {

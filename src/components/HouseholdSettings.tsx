@@ -25,6 +25,7 @@ export const HouseholdSettings = () => {
     const [selectedMember, setSelectedMember] = useState<typeof MEMBERS[0] | null>(null);
     const [houseName, setHouseName] = useState('The Loft 408');
     const [houseEmoji, setHouseEmoji] = useState('🏠');
+    const [houseAddress, setHouseAddress] = useState('123 Main St, Apt 408');
     const [isVacationMode, setIsVacationMode] = useState(false);
     const [isInviteModalVisible, setIsInviteModalVisible] = useState(false);
     const [inviteCode, setInviteCode] = useState('LOFT-408-X');
@@ -59,14 +60,25 @@ export const HouseholdSettings = () => {
                         <Text style={styles.houseEmoji}>{houseEmoji}</Text>
                     </View>
                     <Text style={styles.houseName}>{houseName}</Text>
-                    <Text style={styles.houseAddress}>123 Main St, Apt 408</Text>
+
+                    {/* Address with Copy Button */}
+                    <TouchableOpacity
+                        style={styles.addressRow}
+                        onPress={() => copyToClipboard(houseAddress)}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.houseAddress}>{houseAddress}</Text>
+                        <View style={styles.addressCopyButton}>
+                            <Feather name="copy" size={12} color="rgba(255,255,255,0.9)" />
+                        </View>
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                         style={styles.editButton}
                         onPress={() => setIsEditProfileVisible(true)}
                     >
                         <Feather name="edit-2" size={16} color={COLORS.white} />
-                        <Text style={styles.editButtonText}>Edit Profile</Text>
+                        <Text style={styles.editButtonText}>Edit House</Text>
                     </TouchableOpacity>
                 </LinearGradient>
             </View>
@@ -231,7 +243,7 @@ export const HouseholdSettings = () => {
                 >
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Edit House Profile</Text>
+                            <Text style={styles.modalTitle}>Edit House</Text>
                             <TouchableOpacity onPress={() => setIsEditProfileVisible(false)}>
                                 <Feather name="x" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
@@ -255,6 +267,17 @@ export const HouseholdSettings = () => {
                                 value={houseEmoji}
                                 onChangeText={setHouseEmoji}
                                 placeholder="e.g. 🏠"
+                                placeholderTextColor={COLORS.textSecondary}
+                            />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.inputLabel}>House Address</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={houseAddress}
+                                onChangeText={setHouseAddress}
+                                placeholder="e.g. 123 Main St, Apt 408"
                                 placeholderTextColor={COLORS.textSecondary}
                             />
                         </View>
@@ -345,7 +368,20 @@ const styles = StyleSheet.create({
     houseAddress: {
         fontSize: FONT_SIZE.sm,
         color: 'rgba(255,255,255,0.8)',
+    },
+    addressRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.xs,
         marginBottom: SPACING.lg,
+    },
+    addressCopyButton: {
+        width: 22,
+        height: 22,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     editButton: {
         flexDirection: 'row',

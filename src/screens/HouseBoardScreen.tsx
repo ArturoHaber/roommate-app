@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Image } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -126,8 +126,10 @@ export const HouseBoardScreen = () => {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pinnedScroll}>
                             {pinnedPosts.map(post => (
                                 <View key={post.id} style={styles.pinnedCard}>
-                                    <View style={styles.pinIcon}>
-                                        <Feather name="map-pin" size={12} color={COLORS.primary} />
+                                    {/* Simple pinned label */}
+                                    <View style={styles.pinnedLabel}>
+                                        <MaterialCommunityIcons name="pin" size={16} color="#A5B4FC" />
+                                        <Text style={styles.pinnedLabelText}>Pinned</Text>
                                     </View>
                                     <Text style={styles.pinnedContent}>{post.content}</Text>
                                     <View style={styles.pinnedFooter}>
@@ -309,20 +311,22 @@ const styles = StyleSheet.create({
     },
     pinnedCard: {
         width: 200,
-        backgroundColor: '#312E81', // Deep Indigo for pinned
+        backgroundColor: '#312E81',
         padding: SPACING.lg,
         borderRadius: BORDER_RADIUS.lg,
-        // transform: [{ rotate: '-1deg' }], // Slight tilt for corkboard feel? Maybe too gimmicky.
         borderWidth: 1,
         borderColor: '#4338CA',
     },
-    pinIcon: {
-        position: 'absolute',
-        top: -6,
-        left: '50%',
-        backgroundColor: COLORS.background,
-        padding: 2,
-        borderRadius: BORDER_RADIUS.full,
+    pinnedLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: SPACING.sm,
+    },
+    pinnedLabelText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#A5B4FC',
     },
     pinnedContent: {
         fontSize: FONT_SIZE.md,

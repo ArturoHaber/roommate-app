@@ -13,7 +13,9 @@ import {
   ChoresCalendarScreen,
   HousePulseScreen,
   HouseBoardScreen,
+
 } from './src/screens';
+import { ActivityHistoryScreen } from './src/screens/ActivityHistoryScreen';
 import { useAuthStore } from './src/stores/useAuthStore';
 import { useHouseholdStore } from './src/stores/useHouseholdStore';
 import { COLORS } from './src/constants/theme';
@@ -46,6 +48,15 @@ function DashboardStack() {
   );
 }
 
+function ChoresStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ChoresMain" component={HouseholdScreen} />
+      <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
+    </Stack.Navigator>
+  );
+}
+
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -58,6 +69,7 @@ function MainTabs() {
             iconName = 'grid';
           } else if (route.name === 'Chores') {
             iconName = 'check-square';
+
           } else if (route.name === 'Expenses') {
             iconName = 'dollar-sign';
           } else if (route.name === 'Settings') {
@@ -80,7 +92,8 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardStack} />
-      <Tab.Screen name="Chores" component={HouseholdScreen} />
+      <Tab.Screen name="Chores" component={ChoresStack} />
+
       <Tab.Screen name="Expenses" component={ExpensesScreen} />
       <Tab.Screen name="Settings" component={ProfileScreen} />
     </Tab.Navigator>

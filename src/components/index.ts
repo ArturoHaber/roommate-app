@@ -16,3 +16,8 @@ export * from './TaskDetailModal';
 export * from './ChoresCalendarWidget';
 export { ExpandableFAB } from './ExpandableFAB';
 export { HouseholdSettings } from './HouseholdSettings';
+export { QuickLogFAB } from './QuickLogFAB';
+export { SwipeableHouseCard } from './SwipeableHouseCard';
+export { CookingModal } from './CookingModal';
+export { ActivityDetailModal } from './ActivityDetailModal';
+export type { ActivityItem } from './ActivityDetailModal';
