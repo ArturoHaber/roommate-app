@@ -1,141 +1,124 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Avatar } from './Avatar';
 import { useNavigation } from '@react-navigation/native';
+
+// TODO: Connect to real message board store once migrated to Supabase
+// For now, show empty state
+const ALL_POSTS: any[] = [];
 
 export const MessageBoardWidget = () => {
     const navigation = useNavigation();
 
-    // Mock Data to match HouseBoardScreen
-    // In a real app, this would come from a store
-    const latestAnnouncement = {
-        id: '1',
-        content: 'WiFi Password: "superfast_408"',
-        author: { name: 'Admin', color: COLORS.primary },
-        time: '2h ago'
-    };
-
-    const latestPoll = {
-        id: '3',
-        question: 'Dinner tonight? 🌮',
-        votes: 3,
-        options: 3
-    };
+    // Empty state when no posts
+    if (ALL_POSTS.length === 0) {
+        return (
+            <View style={styles.container}>
+                <TouchableOpacity
+                    style={styles.emptyCard}
+                    onPress={() => navigation.navigate('HouseBoard' as never)}
+                    activeOpacity={0.9}
+                >
+                    <Feather name="message-square" size={24} color={COLORS.gray500} />
+                    <Text style={styles.emptyTitle}>House Board</Text>
+                    <Text style={styles.emptySubtext}>Tap to view & post messages</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
-        <TouchableOpacity
-            style={styles.container}
-            onPress={() => navigation.navigate('HouseBoard' as never)}
-            activeOpacity={0.9}
-        >
-            {/* Pinned Note Preview */}
-            <View style={styles.pinnedCard}>
-                <View style={styles.pinIcon}>
-                    <Feather name="map-pin" size={10} color={COLORS.primary} />
-                </View>
-                <Text style={styles.pinnedTitle}>Pinned</Text>
-                <Text style={styles.pinnedContent} numberOfLines={2}>
-                    {latestAnnouncement.content}
-                </Text>
-                <View style={styles.footerRow}>
-                    <Avatar name={latestAnnouncement.author.name} color={latestAnnouncement.author.color} size="xs" />
-                    <Text style={styles.footerText}>{latestAnnouncement.time}</Text>
-                </View>
-            </View>
+        <View style={styles.container}>
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.scrollContent}
+            >
+                {ALL_POSTS.map((post) => (
+                    <TouchableOpacity
+                        key={post.id}
+                        style={[
+                            styles.card,
+                            post.isPinned && styles.pinnedCard,
+                        ]}
+                        onPress={() => navigation.navigate('HouseBoard' as never)}
+                        activeOpacity={0.9}
+                    >
+                        {/* Simple pinned label */}
+                        {post.isPinned && (
+                            <View style={styles.pinnedLabel}>
+                                <MaterialCommunityIcons name="pin" size={14} color="#A5B4FC" />
+                                <Text style={styles.pinnedLabelText}>Pinned</Text>
+                            </View>
+                        )}
 
-            {/* Active Poll Preview */}
-            <View style={styles.pollCard}>
-                <View style={styles.pollHeader}>
-                    <View style={styles.pollBadge}>
-                        <Feather name="bar-chart-2" size={10} color={COLORS.white} />
-                        <Text style={styles.pollBadgeText}>Active Poll</Text>
-                    </View>
-                </View>
-                <Text style={styles.pollQuestion}>{latestPoll.question}</Text>
-                <Text style={styles.pollStats}>{latestPoll.votes} votes • {latestPoll.options} options</Text>
+                        {/* Poll badge */}
+                        {!post.isPinned && post.type === 'poll' && (
+                            <View style={styles.pollBadge}>
+                                <Feather name="bar-chart-2" size={10} color={COLORS.white} />
+                                <Text style={styles.badgeText}>Poll</Text>
+                            </View>
+                        )}
 
-                <View style={styles.votePreview}>
-                    <View style={styles.voteAvatarRow}>
-                        <Avatar name="Sam" color="#34D399" size="xs" />
-                        <Avatar name="You" color="#818CF8" size="xs" />
-                    </View>
-                    <Text style={styles.actionText}>Tap to vote</Text>
-                </View>
-            </View>
-        </TouchableOpacity>
+                        {/* Content */}
+                        <Text style={[styles.cardContent, post.isPinned && styles.pinnedContent]} numberOfLines={2}>
+                            {post.content}
+                        </Text>
+
+                        {/* Footer with smaller colored avatar */}
+                        <View style={styles.cardFooter}>
+                            <View style={[styles.smallAvatar, { backgroundColor: post.author.color }]}>
+                                <Text style={styles.smallAvatarText}>{post.author.name.charAt(0)}</Text>
+                            </View>
+                            <Text style={[styles.footerText, post.isPinned && styles.pinnedFooterText]}>
+                                {post.time}
+                            </Text>
+                        </View>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
-        flexDirection: 'row',
-        gap: SPACING.md,
         paddingHorizontal: SPACING.lg,
     },
-    // Mini Pinned Card
-    pinnedCard: {
-        flex: 1,
-        backgroundColor: '#312E81', // Deep Indigo to match screen
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.md,
-        borderWidth: 1,
-        borderColor: '#4338CA',
-        minHeight: 120,
-        justifyContent: 'space-between',
+    scrollContent: {
+        gap: SPACING.md,
+        paddingRight: SPACING.lg,
     },
-    pinIcon: {
-        position: 'absolute',
-        top: -6,
-        left: '50%',
-        marginLeft: -8, // center roughly
-        backgroundColor: COLORS.background,
-        padding: 2,
-        borderRadius: BORDER_RADIUS.full,
-        zIndex: 1,
-    },
-    pinnedTitle: {
-        fontSize: 10,
-        color: '#A5B4FC',
-        textTransform: 'uppercase',
-        fontWeight: '700',
-        marginBottom: SPACING.xs,
-        marginTop: SPACING.xs,
-    },
-    pinnedContent: {
-        fontSize: FONT_SIZE.sm,
-        color: '#E0E7FF',
-        fontWeight: '600',
-        lineHeight: 18,
-    },
-    footerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.xs,
-        marginTop: SPACING.sm,
-    },
-    footerText: {
-        fontSize: 10,
-        color: '#A5B4FC',
-    },
-
-    // Mini Poll Card
-    pollCard: {
-        flex: 1.2, // Give slightly more space to poll
+    // Cards
+    card: {
+        width: 160,
+        minHeight: 110,
         backgroundColor: COLORS.gray900,
         borderRadius: BORDER_RADIUS.lg,
         padding: SPACING.md,
         borderWidth: 1,
         borderColor: COLORS.gray800,
-        minHeight: 120,
         justifyContent: 'space-between',
     },
-    pollHeader: {
+    pinnedCard: {
+        backgroundColor: '#312E81',
+        borderColor: '#4338CA',
+    },
+    // Simple pinned label (like reference image)
+    pinnedLabel: {
         flexDirection: 'row',
-        justifyContent: 'flex-start',
+        alignItems: 'center',
+        gap: 4,
         marginBottom: SPACING.xs,
     },
+    pinnedLabelText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#A5B4FC',
+    },
+    // Poll badge
     pollBadge: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -144,36 +127,72 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: BORDER_RADIUS.sm,
         gap: 4,
+        alignSelf: 'flex-start',
+        marginBottom: SPACING.xs,
     },
-    pollBadgeText: {
+    badgeText: {
         fontSize: 9,
         fontWeight: '700',
         color: COLORS.white,
         textTransform: 'uppercase',
     },
-    pollQuestion: {
+    // Content
+    cardContent: {
         fontSize: FONT_SIZE.sm,
-        fontWeight: '700',
         color: COLORS.textPrimary,
-        marginBottom: 2,
+        fontWeight: '600',
+        lineHeight: 18,
+        flex: 1,
     },
-    pollStats: {
-        fontSize: 10,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.sm,
+    pinnedContent: {
+        color: '#E0E7FF',
     },
-    votePreview: {
+    // Footer with smaller avatar
+    cardFooter: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: SPACING.sm,
+    },
+    smallAvatar: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: COLORS.gray700,
+        justifyContent: 'center',
         alignItems: 'center',
     },
-    voteAvatarRow: {
-        flexDirection: 'row',
-        gap: -8, // Overlap
-    },
-    actionText: {
+    smallAvatarText: {
         fontSize: 10,
-        color: COLORS.primary,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    footerText: {
+        fontSize: 10,
+        color: COLORS.textSecondary,
+    },
+    pinnedFooterText: {
+        color: '#A5B4FC',
+    },
+    emptyCard: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.xl,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginHorizontal: SPACING.lg,
+        gap: SPACING.xs,
+    },
+    emptyTitle: {
+        fontSize: FONT_SIZE.md,
         fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginTop: SPACING.sm,
+    },
+    emptySubtext: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
     },
 });

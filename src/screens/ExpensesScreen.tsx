@@ -1,45 +1,120 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert, Animated } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, GRADIENTS } from '../constants/theme';
+import { format } from 'date-fns';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useExpenseStore } from '../stores/useExpenseStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { Avatar } from '../components/Avatar';
 import { ExpandableFAB } from '../components/ExpandableFAB';
 
 export const ExpensesScreen = () => {
   const { user } = useAuthStore();
-  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const { expenses, addExpense, getTotalOwed, getTotalOwedToMe, markSplitPaid, getBalances, initializeSampleExpenses } = useExpenseStore();
+  const { members, household } = useHouseholdStore();
 
-  // Add Expense State
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('groceries');
+  const [category, setCategory] = useState<'groceries' | 'utilities' | 'rent' | 'supplies' | 'other'>('groceries');
 
-  // Calculate Net Balance (Mock Logic)
-  const netBalance = -5.50;
+  // Initialize sample expenses if needed
+  useEffect(() => {
+    if (household && members.length > 0 && expenses.length === 0) {
+      const memberIds = members.map(m => m.id);
+      initializeSampleExpenses(household.id, memberIds);
+    }
+  }, [household, members.length, expenses.length]);
+
+  if (!user) return null;
+
+  // Calculate real balances
+  const totalOwed = getTotalOwed(user.id);
+  const totalOwedToMe = getTotalOwedToMe(user.id);
+  const netBalance = totalOwedToMe - totalOwed;
   const isOwe = netBalance < 0;
 
-  const handleSettle = (name: string, amount: number) => {
+  // Get balances for the ledger
+  const memberIds = members.map(m => m.id);
+  const balances = getBalances(memberIds);
+
+  // Build ledger items from expenses
+  const ledgerItems = expenses.slice(0, 5).map(expense => {
+    const payer = members.find(m => m.id === expense.paidBy) ||
+      (expense.paidBy === user.id ? { id: user.id, name: 'You', avatarColor: user.avatarColor } : null);
+    const mySplit = expense.splits?.find(s => s.userId === user.id);
+    const iOwe = expense.paidBy !== user.id && mySplit && !mySplit.paid;
+    const theyOwe = expense.paidBy === user.id && expense.splits?.some(s => s.userId !== user.id && !s.paid);
+
+    // Find who owes for display
+    const owingUsers = expense.splits?.filter(s => s.userId !== expense.paidBy && !s.paid) || [];
+
+    return {
+      id: expense.id,
+      payer,
+      description: expense.description,
+      amount: iOwe && mySplit ? mySplit.amount : (theyOwe ? (expense.splits?.filter(s => !s.paid && s.userId !== expense.paidBy).reduce((sum, s) => sum + s.amount, 0) || 0) : 0),
+      iOwe,
+      theyOwe,
+      category: expense.category,
+      date: format(new Date(expense.createdAt), 'MMM d'),
+    };
+  }).filter(item => item.iOwe || item.theyOwe);
+
+  const handleSettle = (expenseId: string, payerName: string, amount: number) => {
     Alert.alert(
       "Settle Up?",
-      `Mark payment of $${amount} to ${name} as complete?`,
+      `Mark payment of $${amount.toFixed(2)} to ${payerName} as complete?`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Confirm", onPress: () => Alert.alert("Paid!", "Balance updated.") }
+        {
+          text: "Confirm",
+          onPress: () => {
+            markSplitPaid(expenseId, user.id);
+            Alert.alert("✓ Paid!", "Balance updated.");
+          }
+        }
       ]
     );
   };
 
-  const handleRemind = (name: string) => {
-    Alert.alert(
-      "Send Reminder",
-      `Nudge ${name} about the $10.00?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Send Nudge", onPress: () => Alert.alert("Sent!", `${name} has been verified.`) }
-      ]
-    );
+  const handleRemind = (userName: string) => {
+    Alert.alert("👋 Reminder Sent!", `${userName} has been nudged about the payment.`);
+  };
+
+  const handleAddExpense = () => {
+    if (!amount || !title || !household) return;
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a valid amount.");
+      return;
+    }
+
+    const memberIds = members.map(m => m.id);
+    const splitAmount = amountNum / memberIds.length;
+
+    addExpense({
+      householdId: household.id,
+      paidBy: user.id,
+      amount: amountNum,
+      description: title,
+      category,
+      splitType: 'equal',
+      splits: memberIds.map(id => ({
+        userId: id,
+        amount: splitAmount,
+        paid: id === user.id,
+      })),
+    });
+
+    setIsAddModalVisible(false);
+    setTitle('');
+    setAmount('');
+    setCategory('groceries');
+    Alert.alert("✓ Added!", `$${amountNum.toFixed(2)} expense added and split with everyone.`);
   };
 
   const FABActions = [
@@ -58,15 +133,12 @@ export const ExpensesScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header Removed as requested - Just padding */}
       <View style={{ height: SPACING.xl }} />
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Hero Status Card */}
-        {/* User requested "Minimalist / Premium" - Moving away from the static orange/green blocks 
-                    to a more sophisticated dark card with subtle gradients/accents */}
         <LinearGradient
-          colors={[COLORS.gray900, COLORS.gray800]}
+          colors={[COLORS.gray900, COLORS.gray800] as const}
           style={styles.heroCard}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -75,67 +147,115 @@ export const ExpensesScreen = () => {
             <Text style={styles.heroLabel}>Net Balance</Text>
             <View style={[styles.statusBadge, isOwe ? styles.badgeOwe : styles.badgeSettled]}>
               <Text style={[styles.statusText, isOwe ? { color: COLORS.warning } : { color: COLORS.success }]}>
-                {isOwe ? 'Payment Due' : 'All Settled'}
+                {netBalance === 0 ? 'All Settled' : isOwe ? 'You Owe' : 'Owed to You'}
               </Text>
             </View>
           </View>
 
-          <Text style={[styles.heroAmount, isOwe ? { color: COLORS.warning } : { color: COLORS.textPrimary }]}>
-            {isOwe ? `-$${Math.abs(netBalance).toFixed(2)}` : '$0.00'}
+          <Text style={[styles.heroAmount, isOwe ? { color: COLORS.warning } : netBalance > 0 ? { color: COLORS.success } : { color: COLORS.textPrimary }]}>
+            {netBalance === 0 ? '$0.00' : `${isOwe ? '-' : '+'}$${Math.abs(netBalance).toFixed(2)}`}
           </Text>
 
           <Text style={styles.heroSubtitle}>
-            {isOwe ? 'You owe this amount to the house.' : 'You are all caught up!'}
+            {netBalance === 0 ? 'You are all caught up!' :
+              isOwe ? `You owe $${totalOwed.toFixed(2)} to roommates` :
+                `Roommates owe you $${totalOwedToMe.toFixed(2)}`}
           </Text>
         </LinearGradient>
 
-        {/* The Ledger */}
-        <Text style={styles.sectionTitle}>Breakdown</Text>
+        {/* Recent Expenses / Ledger */}
+        <Text style={styles.sectionTitle}>Outstanding Balances</Text>
 
-        <View style={styles.ledgerList}>
-          {/* Mock Item 1 */}
-          <View style={styles.ledgerRow}>
-            <View style={styles.userRow}>
-              <Avatar name="Sam" color="#34D399" size="md" />
-              <View>
-                <Text style={styles.ledgerName}>Sam</Text>
-                <Text style={styles.ledgerContext}>Paid for Pizza Night</Text>
-              </View>
-            </View>
-            <View style={styles.amountActions}>
-              <Text style={[styles.ledgerAmount, { color: COLORS.error }]}>-$15.00</Text>
-              <TouchableOpacity style={styles.settleButton} onPress={() => handleSettle('Sam', 15)}>
-                <Text style={styles.settleButtonText}>Settle</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        {ledgerItems.length > 0 ? (
+          <View style={styles.ledgerList}>
+            {ledgerItems.map((item) => {
+              const displayMember = item.iOwe ? item.payer :
+                members.find(m => expenses.find(e => e.id === item.id)?.splits?.find(s => s.userId === m.id && !s.paid));
 
-          {/* Mock Item 2 */}
-          <View style={styles.ledgerRow}>
-            <View style={styles.userRow}>
-              <Avatar name="Casey" color="#FBBF24" size="md" />
-              <View>
-                <Text style={styles.ledgerName}>Casey</Text>
-                <Text style={styles.ledgerContext}>Owes for Internet</Text>
-              </View>
-            </View>
-            <View style={styles.amountActions}>
-              <Text style={[styles.ledgerAmount, { color: COLORS.success }]}>+$10.00</Text>
-              <TouchableOpacity
-                style={[styles.settleButton, styles.remindButton]}
-                onPress={() => handleRemind('Casey')}
-              >
-                <Text style={[styles.settleButtonText, { color: COLORS.textSecondary }]}>Remind</Text>
-              </TouchableOpacity>
-            </View>
+              return (
+                <View key={item.id} style={styles.ledgerRow}>
+                  <View style={styles.userRow}>
+                    <Avatar
+                      name={displayMember?.name || 'User'}
+                      color={displayMember?.avatarColor || COLORS.gray600}
+                      size="md"
+                    />
+                    <View>
+                      <Text style={styles.ledgerName}>
+                        {item.iOwe ? (item.payer?.name === 'You' ? 'You' : item.payer?.name) : 'Roommates'}
+                      </Text>
+                      <Text style={styles.ledgerContext}>{item.description}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.amountActions}>
+                    <Text style={[styles.ledgerAmount, { color: item.iOwe ? COLORS.error : COLORS.success }]}>
+                      {item.iOwe ? `-$${item.amount.toFixed(2)}` : `+$${item.amount.toFixed(2)}`}
+                    </Text>
+                    {item.iOwe ? (
+                      <TouchableOpacity
+                        style={styles.settleButton}
+                        onPress={() => handleSettle(item.id, item.payer?.name || 'Roommate', item.amount)}
+                      >
+                        <Text style={styles.settleButtonText}>Settle</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.settleButton, styles.remindButton]}
+                        onPress={() => handleRemind('Roommates')}
+                      >
+                        <Text style={[styles.settleButtonText, { color: COLORS.textSecondary }]}>Remind</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </View>
-        </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>💰</Text>
+            <Text style={styles.emptyText}>No outstanding balances</Text>
+            <Text style={styles.emptySubtext}>Add an expense to split with roommates</Text>
+          </View>
+        )}
+
+        {/* Recent Transactions */}
+        {expenses.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { marginTop: SPACING.xl }]}>Recent Transactions</Text>
+            <View style={styles.transactionList}>
+              {expenses.slice(0, 5).map(expense => {
+                const payer = members.find(m => m.id === expense.paidBy) ||
+                  (expense.paidBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+                return (
+                  <View key={expense.id} style={styles.transactionRow}>
+                    <View style={styles.transactionIcon}>
+                      <Feather
+                        name={expense.category === 'groceries' ? 'shopping-cart' :
+                          expense.category === 'utilities' ? 'zap' :
+                            expense.category === 'rent' ? 'home' : 'tag'}
+                        size={16}
+                        color={COLORS.textSecondary}
+                      />
+                    </View>
+                    <View style={styles.transactionContent}>
+                      <Text style={styles.transactionTitle}>{expense.description}</Text>
+                      <Text style={styles.transactionMeta}>
+                        {payer?.name} paid • {format(new Date(expense.createdAt), 'MMM d')}
+                      </Text>
+                    </View>
+                    <Text style={styles.transactionAmount}>${expense.amount.toFixed(2)}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
       </ScrollView>
 
-      {/* Expandable FAB */}
       <ExpandableFAB actions={FABActions} />
 
-      {/* Add Expense Modal - "The Nice One" Recreated/improved */}
+      {/* Add Expense Modal */}
       <Modal
         visible={isAddModalVisible}
         animationType="slide"
@@ -178,14 +298,14 @@ export const ExpensesScreen = () => {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {['Groceries', 'Utilities', 'Rent', 'Fun', 'Other'].map((cat) => (
+                {(['Groceries', 'Utilities', 'Rent', 'Supplies', 'Other'] as const).map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[
                       styles.categoryChip,
                       category === cat.toLowerCase() && styles.categoryChipActive
                     ]}
-                    onPress={() => setCategory(cat.toLowerCase())}
+                    onPress={() => setCategory(cat.toLowerCase() as typeof category)}
                   >
                     <Text style={[
                       styles.categoryText,
@@ -200,16 +320,16 @@ export const ExpensesScreen = () => {
               <Text style={styles.inputLabel}>Split with</Text>
               <View style={styles.splitAvatars}>
                 <Avatar name="All" color={COLORS.primary} size="md" />
-                <Text style={{ color: COLORS.textSecondary, marginLeft: 8 }}>Everyone</Text>
+                <Text style={{ color: COLORS.textSecondary, marginLeft: 8 }}>
+                  Everyone ({members.length} people)
+                </Text>
               </View>
             </View>
 
             <TouchableOpacity
-              style={styles.saveButton}
-              onPress={() => {
-                setIsAddModalVisible(false);
-                Alert.alert("Added", "Expense added to the ledger.");
-              }}
+              style={[styles.saveButton, (!amount || !title) && styles.saveButtonDisabled]}
+              onPress={handleAddExpense}
+              disabled={!amount || !title}
             >
               <Text style={styles.saveButtonText}>Add Expense</Text>
             </TouchableOpacity>
@@ -229,7 +349,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingBottom: 100,
   },
-  // Hero Card - Premium Dark
   heroCard: {
     padding: SPACING.xl,
     borderRadius: BORDER_RADIUS.xl,
@@ -275,8 +394,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.textSecondary,
   },
-
-  // Ledger
   sectionTitle: {
     fontSize: FONT_SIZE.sm,
     fontWeight: '700',
@@ -292,7 +409,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: COLORS.gray900, // Slightly darker
+    backgroundColor: COLORS.gray900,
     padding: SPACING.md,
     borderRadius: BORDER_RADIUS.lg,
     borderWidth: 1,
@@ -336,8 +453,69 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.white,
   },
-
-  // Modal Styles
+  emptyState: {
+    alignItems: 'center',
+    padding: SPACING.xl,
+    backgroundColor: COLORS.gray900,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.gray800,
+  },
+  emptyEmoji: {
+    fontSize: 32,
+    marginBottom: SPACING.sm,
+  },
+  emptyText: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  emptySubtext: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    marginTop: 4,
+  },
+  transactionList: {
+    backgroundColor: COLORS.gray900,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.gray800,
+    overflow: 'hidden',
+  },
+  transactionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray800,
+  },
+  transactionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: BORDER_RADIUS.sm,
+    backgroundColor: COLORS.gray800,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  transactionContent: {
+    flex: 1,
+  },
+  transactionTitle: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  transactionMeta: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  transactionAmount: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -432,6 +610,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: SPACING.md,
     ...SHADOWS.md,
+  },
+  saveButtonDisabled: {
+    opacity: 0.5,
   },
   saveButtonText: {
     color: COLORS.white,

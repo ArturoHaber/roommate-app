@@ -25,7 +25,7 @@ export const ChoreCard: React.FC<ChoreCardProps> = ({
   isMyChore = false,
 }) => {
   const isCompleted = !!assignment.completedAt;
-  
+
   const getDueDateText = () => {
     const dueDate = new Date(assignment.dueDate);
     if (isToday(dueDate)) return 'Today';
@@ -40,21 +40,21 @@ export const ChoreCard: React.FC<ChoreCardProps> = ({
   };
 
   return (
-    <Card 
-      style={[styles.container, isCompleted && styles.completed]}
+    <Card
+      style={isCompleted ? { ...styles.container, ...styles.completed } : styles.container}
       onPress={onPress}
       variant="elevated"
     >
       <View style={styles.content}>
         <View style={styles.leftSection}>
           <View style={[styles.iconContainer, { backgroundColor: isCompleted ? COLORS.gray200 : COLORS.primaryLight + '20' }]}>
-            <Feather 
-              name={chore.icon as any} 
-              size={20} 
-              color={isCompleted ? COLORS.gray400 : COLORS.primary} 
+            <Feather
+              name={chore.icon as any}
+              size={20}
+              color={isCompleted ? COLORS.gray400 : COLORS.primary}
             />
           </View>
-          
+
           <View style={styles.info}>
             <Text style={[styles.title, isCompleted && styles.completedText]}>
               {chore.name}
@@ -76,9 +76,9 @@ export const ChoreCard: React.FC<ChoreCardProps> = ({
               +{chore.pointValue} pts
             </Text>
           </View>
-          
+
           {!isCompleted && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.completeButton}
               onPress={onComplete}
               activeOpacity={0.7}
@@ -86,7 +86,7 @@ export const ChoreCard: React.FC<ChoreCardProps> = ({
               <Feather name="check-circle" size={28} color={COLORS.secondary} />
             </TouchableOpacity>
           )}
-          
+
           {isCompleted && (
             <View style={styles.completedBadge}>
               <Feather name="check" size={16} color={COLORS.white} />
@@ -94,7 +94,7 @@ export const ChoreCard: React.FC<ChoreCardProps> = ({
           )}
         </View>
       </View>
-      
+
       {assignment.isBonus && (
         <View style={styles.bonusBanner}>
           <Feather name="star" size={12} color={COLORS.accent} />

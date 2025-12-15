@@ -5,15 +5,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useExpenseStore } from '../stores/useExpenseStore';
 
 export const FinanceWidget = () => {
     const { user } = useAuthStore();
+    const { getTotalOwed, getTotalOwedToMe, expenses } = useExpenseStore();
     const navigation = useNavigation<any>();
 
-    // Mock Calculation
-    const netBalance = -25.50; // Negative means "You owe"
+    if (!user) return null;
+
+    // Real balance calculation
+    const totalOwed = getTotalOwed(user.id);
+    const totalOwedToMe = getTotalOwedToMe(user.id);
+    const netBalance = totalOwedToMe - totalOwed;
     const isOwe = netBalance < 0;
-    const pendingTransactions = 3;
+
+    // Count pending transactions
+    const pendingTransactions = expenses.filter(e =>
+        e.splits?.some(s => !s.paid && s.userId !== e.paidBy) || false
+    ).length;
 
     return (
         <TouchableOpacity
@@ -32,13 +42,21 @@ export const FinanceWidget = () => {
                     <View style={styles.balanceHeader}>
                         <View style={[styles.statusDot, isOwe ? styles.statusOwe : styles.statusSettled]} />
                         <Text style={styles.balanceLabel}>
-                            {isOwe ? 'You Owe' : 'All Settled'}
+                            {netBalance === 0 ? 'All Settled' : isOwe ? 'You Owe' : 'Owed to You'}
                         </Text>
                     </View>
 
-                    <Text style={[styles.balanceAmount, isOwe && styles.balanceOwe]}>
-                        {isOwe ? `$${Math.abs(netBalance).toFixed(2)}` : '✓'}
-                    </Text>
+                    <View style={styles.balanceDisplay}>
+                        {netBalance === 0 ? (
+                            <View style={styles.settledBadge}>
+                                <Feather name="check-circle" size={24} color={COLORS.success} />
+                            </View>
+                        ) : (
+                            <Text style={[styles.balanceAmount, isOwe && styles.balanceOwe, netBalance > 0 && styles.balanceOwed]}>
+                                ${Math.abs(netBalance).toFixed(2)}
+                            </Text>
+                        )}
+                    </View>
 
                     {pendingTransactions > 0 && (
                         <Text style={styles.pendingText}>
@@ -109,6 +127,15 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         letterSpacing: 1,
     },
+    balanceDisplay: {
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    settledBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.xs,
+    },
     balanceAmount: {
         fontSize: 36,
         fontWeight: '800',
@@ -117,6 +144,9 @@ const styles = StyleSheet.create({
     },
     balanceOwe: {
         color: COLORS.warning,
+    },
+    balanceOwed: {
+        color: COLORS.success,
     },
     pendingText: {
         fontSize: FONT_SIZE.xs,

@@ -1,449 +1,505 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Dimensions, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { format, isToday, isTomorrow, isPast, addDays } from 'date-fns';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
-import { RoomCard, AddTaskModal, TaskDetailModal, ExpandableFAB, ChoresCalendarWidget } from '../components';
-import { Chore, NudgeTone } from '../types';
+import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData } from '../components';
 import { useAuthStore } from '../stores/useAuthStore';
-import { Avatar } from '../components/Avatar';
+import { useChoreStore } from '../stores/useChoreStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useNudgeStore } from '../stores/useNudgeStore';
 
-type Tab = 'overview' | 'all_chores';
-
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = width - (SPACING.lg * 2);
-
-// Mock Data for Mission Control
-const MY_CURRENT_CHORE = {
-    id: '101',
-    name: 'Clean the Bathroom',
-    description: 'Scrub the sink, toilet, and mirror.',
-    due: 'Today',
-    points: 10,
-    icon: 'droplet' as const,
-    room: 'bathroom',
-    frequency: 'weekly',
-    pointValue: 10,
-    householdId: 'h1',
-    createdAt: new Date(),
-} as Chore;
-
-const WEEKLY_OVERVIEW = {
-    total: 12,
-    completed: 8,
-    upcoming: [
-        { id: '301', user: 'Sam', task: 'Trash', day: 'Tue', color: '#34D399' },
-        { id: '302', user: 'Alex', task: 'Dishes', day: 'Wed', color: '#EC4899' },
-        { id: '303', user: 'You', task: 'Vacuum', day: 'Thu', color: '#818CF8' },
-    ]
-};
-
-// New Chore Radar Data (Sorted by Relevance/Urgency)
-const CHORE_RADAR = [
-    {
-        id: '401',
-        task: 'Pay Rent',
-        room: 'General',
-        assignee: { name: 'Everyone', color: COLORS.error },
-        due: 'Overdue (1d)',
-        status: 'do_now'
-    },
-    {
-        id: '201',
-        task: 'Take out Trash',
-        room: 'Kitchen',
-        assignee: { name: 'Sam', color: '#34D399' },
-        due: 'Late (2h)',
-        status: 'do_now'
-    },
-    {
-        id: '402',
-        task: 'Wipe Counters',
-        room: 'Kitchen',
-        assignee: { name: 'Alex', color: '#EC4899' },
-        due: 'Today',
-        status: 'do_soon'
-    },
-    {
-        id: '405',
-        task: 'Load Dishwasher',
-        room: 'Kitchen',
-        assignee: { name: 'Sam', color: '#34D399' },
-        due: 'Today',
-        status: 'do_soon'
-    },
-    {
-        id: '202',
-        task: 'Living Room Vacuum',
-        room: 'Living Room',
-        assignee: { name: 'Casey', color: '#FBBF24' },
-        due: 'Tomorrow',
-        status: 'coming_up'
-    },
-    {
-        id: '403',
-        task: 'Water Plants',
-        room: 'Living Room',
-        assignee: { name: 'You', color: '#818CF8' },
-        due: 'Fri',
-        status: 'coming_up'
-    },
-] as const;
-
-
-const INITIAL_CHORES: Chore[] = [
-    { id: '1', name: 'Dishes', room: 'kitchen', frequency: 'daily', pointValue: 3, icon: 'droplet', householdId: 'h1', description: '', createdAt: new Date() },
-    { id: '2', name: 'Trash', room: 'kitchen', frequency: 'weekly', pointValue: 2, icon: 'trash-2', householdId: 'h1', description: '', createdAt: new Date() },
-    { id: '3', name: 'Vacuum', room: 'living_room', frequency: 'weekly', pointValue: 5, icon: 'wind', householdId: 'h1', description: '', createdAt: new Date() },
-    { id: '4', name: 'Clean Mirror', room: 'bathroom', frequency: 'weekly', pointValue: 3, icon: 'maximize', householdId: 'h1', description: '', createdAt: new Date() },
-    { id: '5', name: 'Scrub Toilet', room: 'bathroom', frequency: 'weekly', pointValue: 5, icon: 'disc', householdId: 'h1', description: '', createdAt: new Date() },
-];
-
-const ROOMS = [
-    { id: 'kitchen', name: 'Kitchen', icon: 'coffee', colors: ['#F59E0B', '#D97706'] },
-    { id: 'living_room', name: 'Living Room', icon: 'tv', colors: ['#3B82F6', '#2563EB'] },
-    { id: 'bathroom', name: 'Bathroom', icon: 'droplet', colors: ['#06B6D4', '#0891B2'] },
-    { id: 'bedroom', name: 'Bedroom', icon: 'moon', colors: ['#8B5CF6', '#7C3AED'] },
-    { id: 'dining', name: 'Dining', icon: 'layout', colors: ['#EC4899', '#DB2777'] },
-    { id: 'other', name: 'Other', icon: 'grid', colors: ['#10B981', '#059669'] },
-] as const;
+// Activity types for the feed
+interface Activity {
+    id: string;
+    type: 'complete' | 'nudge';
+    user: string;
+    userColor: string;
+    chore: string;
+    time: string;
+    target?: string;
+}
 
 export const HouseholdScreen = () => {
+    const navigation = useNavigation();
     const { user } = useAuthStore();
-    const [activeTab, setActiveTab] = useState<Tab>('overview');
-    const [chores, setChores] = useState<Chore[]>(INITIAL_CHORES);
+    const { chores, assignments, completeChore, getLeaderboard, initializeDefaultChores, generateWeeklyAssignments } = useChoreStore();
+    const { members, household } = useHouseholdStore();
+    const { nudges, sendNudge } = useNudgeStore();
 
-    // Modal States
-    const [isAddModalVisible, setIsAddModalVisible] = useState(false);
-    const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
-    const [selectedRoom, setSelectedRoom] = useState<string | undefined>(undefined);
-    const [selectedTask, setSelectedTask] = useState<Chore | null>(null);
+    const [completeSheetVisible, setCompleteSheetVisible] = useState(false);
+    const [quickLogVisible, setQuickLogVisible] = useState(false);
+    const [nudgeVisible, setNudgeVisible] = useState(false);
+    const [isCookingVisible, setIsCookingVisible] = useState(false);
+    const [snitchVisible, setSnitchVisible] = useState(false);
+    const [activityExpanded, setActivityExpanded] = useState(false);
+    const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+    const [selectedRoommate, setSelectedRoommate] = useState<typeof members[0] | null>(null);
+    const [selectedTask, setSelectedTask] = useState<TaskDisplayData | null>(null);
 
-    // Grouping Logic
-    const doNowChores = CHORE_RADAR.filter(c => c.status === 'do_now');
-    const doSoonChores = CHORE_RADAR.filter(c => c.status === 'do_soon');
-    const comingUpChores = CHORE_RADAR.filter(c => c.status === 'coming_up');
-
-    const handleSaveTask = (task: Partial<Chore>) => {
-        if (task.id) {
-            setChores(chores.map(c => c.id === task.id ? { ...c, ...task } as Chore : c));
-        } else {
-            const newChore: Chore = {
-                id: Math.random().toString(),
-                householdId: 'h1',
-                description: '',
-                createdAt: new Date(),
-                ...task
-            } as Chore;
-            setChores([...chores, newChore]);
+    // Initialize data on mount if needed
+    useEffect(() => {
+        if (household && chores.length === 0) {
+            initializeDefaultChores(household.id);
         }
-        setIsAddModalVisible(false);
-        setSelectedTask(null);
-    };
+    }, [household, chores.length]);
 
-    const openAddModal = (roomId?: string) => {
-        setSelectedRoom(roomId);
-        setSelectedTask(null);
-        setIsAddModalVisible(true);
-    };
-
-    const openTaskDetail = (task: Chore) => {
-        setSelectedTask(task);
-        setIsDetailModalVisible(true);
-    };
-
-    const handleEditFromDetail = (task: Chore) => {
-        setIsDetailModalVisible(false);
-        setTimeout(() => {
-            setSelectedTask(task);
-            setIsAddModalVisible(true);
-        }, 300);
-    };
-
-    const handleMarkDone = (task: Chore) => {
-        setIsDetailModalVisible(false);
-        Alert.alert("Chore Completed!", `You earned ${task.pointValue} points.`);
-    };
-
-    const handleNudge = (task: Chore, tone: NudgeTone) => {
-        console.log(`Nudge: ${task.name} with tone: ${tone}`);
-        setIsDetailModalVisible(false);
-        setSelectedTask(null);
-    };
-
-    const handleSnitch = (task: Chore, tone: NudgeTone) => {
-        console.log(`Snitch: ${task.name} with tone: ${tone}`);
-        setIsDetailModalVisible(false);
-        setSelectedTask(null);
-    };
-
-    const handleAction = (item: any) => {
-        if (item.status === 'do_now' || item.status === 'do_soon') {
-            Alert.alert("Nudge Sent", `Reminded ${item.assignee.name} about ${item.task}!`);
-        } else {
-            Alert.alert("Coming Up", `${item.task} is due ${item.due}.`);
+    useEffect(() => {
+        if (members.length > 0 && assignments.length === 0) {
+            const memberIds = members.map(m => m.id);
+            generateWeeklyAssignments(memberIds);
         }
+    }, [members.length, assignments.length]);
+
+    if (!user) return null;
+
+    // Get my assignments (upcoming and today)
+    const myAssignments = assignments
+        .filter(a => a.assignedTo === user.id && !a.completedAt)
+        .map(a => {
+            const chore = chores.find(c => c.id === a.choreId);
+            const dueDate = new Date(a.dueDate);
+            const isUrgent = isPast(dueDate) && !isToday(dueDate);
+
+            let dueText = format(dueDate, 'EEE');
+            if (isToday(dueDate)) dueText = 'Today';
+            else if (isTomorrow(dueDate)) dueText = 'Tomorrow';
+            else if (isPast(dueDate)) dueText = 'Overdue';
+
+            return {
+                id: a.id,
+                choreId: a.choreId,
+                name: chore?.name || 'Unknown',
+                icon: chore?.icon || 'circle',
+                due: dueText,
+                room: chore?.name.includes('bathroom') ? 'Bathroom' :
+                    chore?.name.includes('kitchen') || chore?.name.includes('dishes') ? 'Kitchen' : 'General',
+                urgent: isUrgent || isToday(dueDate),
+                points: chore?.pointValue || 3,
+            };
+        })
+        .sort((a, b) => (a.urgent === b.urgent ? 0 : a.urgent ? -1 : 1))
+        .slice(0, 5);
+
+    // Convert myAssignments to TaskDisplayData format
+    const displayTasks: TaskDisplayData[] = myAssignments.map(a => ({
+        id: a.id,
+        choreId: a.choreId,
+        name: a.name,
+        icon: a.icon,
+        dueText: a.due,
+        room: a.room,
+        isUrgent: a.urgent,
+        points: a.points,
+    }));
+
+    // Get leaderboard for fairness bars
+    const leaderboard = getLeaderboard();
+    const maxCount = Math.max(...leaderboard.map(l => l.completedChores), 1);
+
+    // Build activity feed from completed assignments and nudges
+    const activityFeed: Activity[] = [];
+
+    // Add completed assignments
+    assignments
+        .filter(a => a.completedAt)
+        .slice(0, 5)
+        .forEach(a => {
+            const chore = chores.find(c => c.id === a.choreId);
+            const completedBy = members.find(m => m.id === a.completedBy) ||
+                (a.completedBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+            if (completedBy && chore) {
+                const completedDate = new Date(a.completedAt!);
+                const now = new Date();
+                const diffHours = Math.floor((now.getTime() - completedDate.getTime()) / (1000 * 60 * 60));
+                const timeText = diffHours < 1 ? 'Just now' :
+                    diffHours < 24 ? `${diffHours}h ago` :
+                        `${Math.floor(diffHours / 24)}d ago`;
+
+                activityFeed.push({
+                    id: a.id,
+                    type: 'complete',
+                    user: completedBy.name,
+                    userColor: completedBy.avatarColor,
+                    chore: chore.name,
+                    time: timeText,
+                });
+            }
+        });
+
+    // Add nudges
+    nudges.slice(0, 3).forEach(n => {
+        const sender = members.find(m => m.id === n.createdBy) ||
+            (n.createdBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+        if (sender) {
+            activityFeed.push({
+                id: n.id,
+                type: 'nudge',
+                user: sender.name,
+                userColor: sender.avatarColor,
+                chore: n.message.substring(0, 20) + '...',
+                time: format(new Date(n.createdAt), 'h:mm a'),
+            });
+        }
+    });
+
+    // Get roommates (exclude self)
+    const roommates = members.filter(m => m.id !== user.id);
+
+    // Quick log handler
+    const handleQuickLog = (choreId: string, choreName: string, points: number) => {
+        // Find an assignment for this chore or create an ad-hoc completion
+        const assignment = assignments.find(a => a.choreId === choreId && !a.completedAt);
+        if (assignment) {
+            completeChore(assignment.id, user.id);
+        }
+        setQuickLogVisible(false);
+        Alert.alert('✓ Logged!', `${choreName} marked as complete. +${points} points!`);
     };
 
-    const FABActions = [
-        {
-            icon: 'plus' as const,
-            label: 'Add Task',
-            onPress: () => openAddModal(),
-        },
+    // Mark done from Your Turn list
+    const handleMarkDone = (assignmentId: string, choreName: string, points: number) => {
+        completeChore(assignmentId, user.id);
+        Alert.alert('✓ Done!', `${choreName} marked as complete. +${points} points!`);
+    };
+
+    // Nudge handler
+    const handleNudge = (choreName: string) => {
+        if (!selectedRoommate || !household) return;
+
+        sendNudge({
+            householdId: household.id,
+            tone: 'polite',
+            message: `Hey! Quick reminder about ${choreName} 👋`,
+            targetUserId: selectedRoommate.id,
+            createdBy: user.id,
+        });
+
+        setNudgeVisible(false);
+        setSelectedRoommate(null);
+        Alert.alert('👋 Nudge Sent!', `${selectedRoommate.name} has been reminded about ${choreName}`);
+    };
+
+    // Cooking submit handler
+    const handleCookingSubmit = (eaterIds: string[]) => {
+        setIsCookingVisible(false);
+        Alert.alert(
+            '🍽️ Dishes Assigned!',
+            `Dishes have been assigned to ${eaterIds.length} ${eaterIds.length === 1 ? 'person' : 'people'}. They'll see it in their tasks.`,
+            [{ text: 'OK' }]
+        );
+    };
+
+    // Snitch submit handler
+    const handleSnitchSubmit = (issue: string) => {
+        setSnitchVisible(false);
+        Alert.alert(
+            '👀 Reported!',
+            'Your household has been notified. Justice will be served.',
+            [{ text: 'OK' }]
+        );
+    };
+
+    // Build fairness data from leaderboard
+    const fairnessData = leaderboard.map(entry => {
+        const member = members.find(m => m.id === entry.userId) ||
+            (entry.userId === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+        return {
+            name: member?.name || 'Unknown',
+            color: member?.avatarColor || COLORS.gray600,
+            count: entry.completedChores,
+        };
+    });
+
+    // If no leaderboard yet, show current members with 0
+    const displayFairness = fairnessData.length > 0 ? fairnessData : [
+        { name: 'You', color: user.avatarColor, count: 0 },
+        ...roommates.slice(0, 2).map(r => ({ name: r.name, color: r.avatarColor, count: 0 }))
     ];
 
-    // --- Sub-Components (Internal) ---
+    return (
+        <SafeAreaView style={styles.container}>
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-    // ... MissionCard & HousePulseCard (Unchanged) ...
-    const MissionCard = () => (
-        <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.carouselItem}
-            onPress={() => openTaskDetail(MY_CURRENT_CHORE)}
-        >
-            <LinearGradient
-                colors={[COLORS.primary, '#6366F1']}
-                style={styles.heroCard}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-            >
-                <View style={styles.heroHeader}>
-                    <View style={styles.iconContainer}>
-                        <Feather name={MY_CURRENT_CHORE.icon as any} size={24} color={COLORS.white} />
+                {/* Header */}
+                <View style={styles.header}>
+                    <Text style={styles.headerTitle}>Chores</Text>
+                    <TouchableOpacity style={styles.headerButton}>
+                        <Feather name="settings" size={20} color={COLORS.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+
+                {/* iOS Glass Action Bar */}
+                <View style={styles.actionBar}>
+                    <TouchableOpacity
+                        style={styles.actionCard}
+                        onPress={() => setCompleteSheetVisible(true)}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.actionCardInner}>
+                            <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(52, 211, 153, 0.08)' }]}>
+                                <Feather name="check" size={18} color="#6EE7B7" />
+                            </View>
+                            <Text style={styles.actionCardLabel}>Complete</Text>
+                        </View>
+                    </TouchableOpacity>
+
+                    <View style={styles.actionDivider} />
+
+                    <TouchableOpacity
+                        style={styles.actionCard}
+                        onPress={() => setQuickLogVisible(true)}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.actionCardInner}>
+                            <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(167, 139, 250, 0.08)' }]}>
+                                <Feather name="plus" size={18} color="#A78BFA" />
+                            </View>
+                            <Text style={styles.actionCardLabel}>Log</Text>
+                        </View>
+                    </TouchableOpacity>
+
+                    <View style={styles.actionDivider} />
+
+                    <TouchableOpacity
+                        style={styles.actionCard}
+                        onPress={() => setSnitchVisible(true)}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.actionCardInner}>
+                            <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(251, 146, 160, 0.08)' }]}>
+                                <Feather name="eye" size={18} color="#FDA4AF" />
+                            </View>
+                            <Text style={styles.actionCardLabel}>Snitch</Text>
+                        </View>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Your Turn Section */}
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Your Turn</Text>
+                        <Text style={styles.sectionCount}>{displayTasks.length} tasks</Text>
                     </View>
-                    <View style={styles.pointsBadge}>
-                        <Text style={styles.pointsText}>+{MY_CURRENT_CHORE.pointValue} PTS</Text>
+
+                    <View style={styles.yourTurnContainer}>
+                        {displayTasks.length > 0 ? (
+                            <View style={styles.choreList}>
+                                {displayTasks.map((task) => (
+                                    <UnifiedTaskCard
+                                        key={task.id}
+                                        task={task}
+                                        variant="compact"
+                                        onPress={() => setSelectedTask(task)}
+                                        onComplete={() => handleMarkDone(task.id, task.name, task.points)}
+                                        showCompleteButton={true}
+                                    />
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.emptyState}>
+                                <Text style={styles.emptyEmoji}>🎉</Text>
+                                <Text style={styles.emptyText}>All caught up!</Text>
+                                <Text style={styles.emptySubtext}>No chores assigned to you right now</Text>
+                            </View>
+                        )}
                     </View>
                 </View>
 
-                <View style={styles.heroContent}>
-                    <Text style={styles.heroEyebrow}>YOUR MISSION TODAY</Text>
-                    <Text style={styles.heroTitle} numberOfLines={1}>{MY_CURRENT_CHORE.name}</Text>
-                    <Text style={styles.heroDesc}>{MY_CURRENT_CHORE.description}</Text>
+                {/* Activity Feed */}
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Recent Activity</Text>
+                        <TouchableOpacity onPress={() => navigation.navigate('ActivityHistory' as never)}>
+                            <Text style={styles.seeAll}>See All</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {activityFeed.length > 0 ? (
+                        <View style={styles.activityList}>
+                            {(activityExpanded ? activityFeed : activityFeed.slice(0, 4)).map((activity) => (
+                                <TouchableOpacity
+                                    key={activity.id}
+                                    style={styles.activityItem}
+                                    onPress={() => setSelectedActivity(activity)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Avatar name={activity.user} color={activity.userColor} size="sm" />
+                                    <View style={styles.activityContent}>
+                                        <Text style={styles.activityText}>
+                                            {activity.type === 'complete' ? (
+                                                <><Text style={styles.activityUser}>{activity.user}</Text> completed <Text style={styles.activityChore}>{activity.chore}</Text></>
+                                            ) : (
+                                                <><Text style={styles.activityUser}>{activity.user}</Text> sent a nudge</>
+                                            )}
+                                        </Text>
+                                        <Text style={styles.activityTime}>{activity.time}</Text>
+                                    </View>
+                                    <View style={[styles.activityIcon, activity.type === 'complete' ? styles.activityIconComplete : styles.activityIconNudge]}>
+                                        <Feather
+                                            name={activity.type === 'complete' ? 'check' : 'send'}
+                                            size={12}
+                                            color={activity.type === 'complete' ? COLORS.success : COLORS.primary}
+                                        />
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    ) : (
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyCardText}>No activity yet. Complete a chore to get started!</Text>
+                        </View>
+                    )}
                 </View>
 
-                <View style={styles.heroFooter}>
-                    <Text style={styles.heroDue}>Due {MY_CURRENT_CHORE.due}</Text>
-                    <View style={styles.tapHint}>
-                        <Text style={styles.tapHintText}>Tap for details</Text>
-                        <Feather name="arrow-right" size={14} color={COLORS.white} />
+                {/* Fairness Section */}
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>This Week</Text>
+                        <Text style={styles.sectionSubtitle}>Fairness Tracker</Text>
                     </View>
-                </View>
-            </LinearGradient>
-        </TouchableOpacity>
-    );
 
-    const HousePulseCard = () => (
-        <View style={styles.carouselItem}>
-            <LinearGradient
-                colors={[COLORS.gray800, COLORS.gray900]}
-                style={[styles.heroCard, { borderWidth: 1, borderColor: COLORS.gray700 }]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-            >
-                <View style={styles.heroHeader}>
-                    <View style={[styles.iconContainer, { backgroundColor: COLORS.gray700 }]}>
-                        <Feather name="activity" size={24} color={COLORS.textSecondary} />
-                    </View>
-                    <View style={[styles.pointsBadge, { backgroundColor: COLORS.success + '20' }]}>
-                        <Text style={[styles.pointsText, { color: COLORS.success }]}>{WEEKLY_OVERVIEW.completed}/{WEEKLY_OVERVIEW.total} Done</Text>
-                    </View>
-                </View>
-
-                <View style={styles.heroContent}>
-                    <Text style={styles.heroEyebrow}>HOUSE PULSE</Text>
-                    <Text style={styles.heroTitle}>Weekly Overview</Text>
-
-                    <View style={styles.pulseRow}>
-                        {WEEKLY_OVERVIEW.upcoming.map((item, index) => (
-                            <View key={item.id} style={styles.pulseItem}>
-                                <Avatar name={item.user} color={item.color} size="sm" />
-                                <View>
-                                    <Text style={styles.pulseDay}>{item.day}</Text>
-                                    <Text style={styles.pulseTask}>{item.task}</Text>
+                    <View style={styles.fairnessCard}>
+                        {displayFairness.map((person, index) => (
+                            <View key={person.name + index} style={styles.fairnessRow}>
+                                <View style={styles.fairnessLeft}>
+                                    <Avatar name={person.name} color={person.color} size="sm" />
+                                    <Text style={styles.fairnessName}>{person.name}</Text>
+                                </View>
+                                <View style={styles.fairnessBarContainer}>
+                                    <View style={styles.fairnessBarBg}>
+                                        <View
+                                            style={[
+                                                styles.fairnessBarFill,
+                                                {
+                                                    width: maxCount > 0 ? `${(person.count / maxCount) * 100}%` : '0%',
+                                                    backgroundColor: person.color
+                                                }
+                                            ]}
+                                        />
+                                    </View>
+                                    <Text style={styles.fairnessCount}>{person.count}</Text>
                                 </View>
                             </View>
                         ))}
                     </View>
                 </View>
-            </LinearGradient>
-        </View>
-    );
 
-    const RadarSection = ({ title, items, type }: { title: string, items: readonly typeof CHORE_RADAR[number][], type: 'do_now' | 'do_soon' | 'coming_up' }) => {
-        if (items.length === 0) return null;
+                <View style={{ height: 100 }} />
+            </ScrollView>
 
-        const [collapsed, setCollapsed] = useState(false);
+            {/* Quick Log Sheet */}
+            <LogSheet
+                visible={quickLogVisible}
+                onClose={() => setQuickLogVisible(false)}
+            />
 
-        // Peaceful Color Scheme
-        // Do Now = Success (Green) - "Go" / Active
-        // Do Soon = Info/Blue - Clear but calm
-        // Coming Up = Text Secondary/Gray - Background
-        const headerColor = type === 'do_now' ? COLORS.success : type === 'do_soon' ? '#3B82F6' : COLORS.textSecondary;
-        const icon = type === 'do_now' ? 'play-circle' : type === 'do_soon' ? 'clock' : 'calendar';
-
-        return (
-            <View style={styles.radarSection}>
-                <TouchableOpacity
-                    style={styles.radarSectionHeader}
-                    onPress={() => setCollapsed(!collapsed)}
-                    activeOpacity={0.7}
-                >
-                    <Feather name={icon} size={14} color={headerColor} />
-                    <Text style={[styles.radarSectionTitle, { color: headerColor }]}>{title} ({items.length})</Text>
-                    <View style={styles.radarSectionLine} />
-                    <Feather name={collapsed ? "chevron-down" : "chevron-up"} size={14} color={COLORS.textSecondary} />
-                </TouchableOpacity>
-
-                {!collapsed && (
-                    <View style={styles.radarGroup}>
-                        {items.map((item, index) => (
-                            <TouchableOpacity
-                                key={item.id}
-                                style={[
-                                    styles.radarItem,
-                                    item.status === 'do_now' && styles.radarItemHighlight
-                                ]}
-                                onPress={() => openTaskDetail({
-                                    ...MY_CURRENT_CHORE, // Using helper to cast mock data to Chore type for now
-                                    id: item.id,
-                                    name: item.task,
-                                    room: (item.room.toLowerCase().replace(' ', '_') as any),
-                                } as Chore)}
-                            >
-                                <View style={styles.radarLeft}>
-                                    <Text style={[styles.radarTaskName, item.status === 'coming_up' && styles.textMuted]}>{item.task}</Text>
-                                    <Text style={styles.radarMetaText}>{item.room} • {item.assignee.name}</Text>
-                                </View>
-
-                                <View style={styles.radarRight}>
-                                    {type !== 'coming_up' && (
-                                        <View style={styles.radarAction}>
-                                            <Feather name="bell" size={16} color={type === 'do_now' ? COLORS.success : COLORS.textSecondary} />
-                                        </View>
-                                    )}
-                                    {type === 'coming_up' && (
-                                        <Text style={styles.radarDate}>{item.due}</Text>
-                                    )}
-                                    <Feather name="chevron-right" size={14} color={COLORS.gray700} style={{ marginLeft: 8 }} />
-                                </View>
-                            </TouchableOpacity>
-                        ))}
+            {/* Nudge Modal */}
+            <Modal
+                visible={nudgeVisible}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => { setNudgeVisible(false); setSelectedRoommate(null); }}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>
+                            {selectedRoommate ? `Nudge ${selectedRoommate.name} about...` : 'Who needs a nudge?'}
+                        </Text>
+                        <TouchableOpacity onPress={() => { setNudgeVisible(false); setSelectedRoommate(null); }}>
+                            <Feather name="x" size={24} color={COLORS.textPrimary} />
+                        </TouchableOpacity>
                     </View>
-                )}
-            </View>
-        );
-    };
 
-    return (
-        <SafeAreaView style={styles.container}>
-            {/* Header / Navigation */}
-            <View style={styles.navContainer}>
-                <View style={styles.navBar}>
-                    <TouchableOpacity
-                        style={[styles.navItem, activeTab === 'overview' && styles.navItemActive]}
-                        onPress={() => setActiveTab('overview')}
-                    >
-                        <Text style={[styles.navText, activeTab === 'overview' && styles.navTextActive]}>Overview</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.navItem, activeTab === 'all_chores' && styles.navItemActive]}
-                        onPress={() => setActiveTab('all_chores')}
-                    >
-                        <Text style={[styles.navText, activeTab === 'all_chores' && styles.navTextActive]}>All Chores</Text>
-                    </TouchableOpacity>
+                    {!selectedRoommate ? (
+                        <View style={styles.roommateList}>
+                            {roommates.length > 0 ? roommates.map((roommate) => (
+                                <TouchableOpacity
+                                    key={roommate.id}
+                                    style={styles.roommateOption}
+                                    onPress={() => setSelectedRoommate(roommate)}
+                                >
+                                    <Avatar name={roommate.name} color={roommate.avatarColor} size="lg" />
+                                    <Text style={styles.roommateName}>{roommate.name}</Text>
+                                    <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            )) : (
+                                <Text style={styles.emptyCardText}>No roommates yet. Invite someone to your household!</Text>
+                            )}
+                        </View>
+                    ) : (
+                        <View style={styles.quickGrid}>
+                            {chores.slice(0, 5).map((chore) => (
+                                <TouchableOpacity
+                                    key={chore.id}
+                                    style={styles.quickOption}
+                                    onPress={() => handleNudge(chore.name)}
+                                >
+                                    <View style={[styles.quickOptionIcon, { backgroundColor: COLORS.primary + '20' }]}>
+                                        <Feather name={chore.icon as any} size={24} color={COLORS.primary} />
+                                    </View>
+                                    <Text style={styles.quickOptionText}>{chore.name}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
                 </View>
-            </View>
+            </Modal>
 
-            {/* Content Area */}
-            <View style={styles.content}>
-
-                {/* 1. OVERVIEW (MISSION CONTROL) */}
-                {activeTab === 'overview' && (
-                    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-                        {/* THE HEART: Carousel */}
-                        <Text style={styles.sectionTitle}>Dashboard</Text>
-                        <ScrollView
-                            horizontal
-                            pagingEnabled
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.carouselContent}
-                            decelerationRate="fast"
-                            snapToInterval={CARD_WIDTH + SPACING.md}
-                        >
-                            <MissionCard />
-                            <HousePulseCard />
-                        </ScrollView>
-
-                        {/* Paging Indicator (Simple) */}
-                        <View style={styles.pagingIndicator}>
-                            <View style={[styles.dot, styles.dotActive]} />
-                            <View style={styles.dot} />
-                        </View>
-
-                        {/* CHORE RADAR - SECTIONED */}
-                        <Text style={styles.mainSectionTitle}>Chore Radar</Text>
-                        <View style={styles.radarContainer}>
-                            <RadarSection title="Do Now" items={doNowChores} type="do_now" />
-                            <RadarSection title="Do Soon" items={doSoonChores} type="do_soon" />
-                            <RadarSection title="Coming Up" items={comingUpChores} type="coming_up" />
-                        </View>
-
-
-                        {/* CALENDAR - Chore History */}
-                        <ChoresCalendarWidget />
-
-                    </ScrollView>
-                )}
-
-                {/* 2. ALL CHORES (MANAGEMENT) */}
-                {activeTab === 'all_chores' && (
-                    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                        <Text style={styles.viewDescription}>Manage house chores and edit habits.</Text>
-                        {ROOMS.map(room => (
-                            <RoomCard
-                                key={room.id}
-                                roomName={room.name}
-                                icon={room.icon}
-                                gradientColors={[...room.colors] as [string, string]}
-                                tasks={chores.filter(c => c.room === room.id)}
-                                onEditTask={openTaskDetail}
-                                onAddTask={() => openAddModal(room.id)}
-                            />
-                        ))}
-                    </ScrollView>
-                )}
-
-            </View>
-
-            {/* Modals */}
-            <AddTaskModal
-                visible={isAddModalVisible}
-                onClose={() => setIsAddModalVisible(false)}
-                onSave={handleSaveTask}
-                initialRoom={selectedRoom}
-                initialTask={selectedTask}
+            {/* Cooking Modal */}
+            <CookingModal
+                visible={isCookingVisible}
+                onClose={() => setIsCookingVisible(false)}
+                onSubmit={handleCookingSubmit}
             />
 
+            {/* Report Sheet (Snitch) */}
+            <ReportSheet
+                visible={snitchVisible}
+                onClose={() => setSnitchVisible(false)}
+            />
+
+            {/* Complete Sheet */}
+            <CompleteSheet
+                visible={completeSheetVisible}
+                onClose={() => setCompleteSheetVisible(false)}
+            />
+
+            {/* Activity Detail Modal */}
+            <ActivityDetailModal
+                activity={selectedActivity}
+                onClose={() => setSelectedActivity(null)}
+            />
+
+            {/* Task Detail Modal - Unified for all task cards */}
             <TaskDetailModal
-                visible={isDetailModalVisible}
-                task={selectedTask}
+                visible={selectedTask !== null}
+                onClose={() => setSelectedTask(null)}
+                task={selectedTask ? {
+                    id: selectedTask.choreId,
+                    name: selectedTask.name,
+                    description: '',
+                    icon: selectedTask.icon,
+                    pointValue: selectedTask.points,
+                    frequency: 'weekly',
+                    householdId: household?.id || '',
+                    createdAt: new Date(),
+                    room: selectedTask.room as any,
+                    isActive: true,
+                } : null}
                 currentUser={user!}
-                onClose={() => setIsDetailModalVisible(false)}
-                onEdit={handleEditFromDetail}
-                onMarkDone={handleMarkDone}
-                onNudge={handleNudge}
-                onSnitch={handleSnitch}
+                onEdit={() => { }}
+                onMarkDone={(task) => {
+                    if (selectedTask) {
+                        handleMarkDone(selectedTask.id, selectedTask.name, selectedTask.points);
+                        setSelectedTask(null);
+                    }
+                }}
+                onNudge={() => { }}
+                onSnitch={() => { }}
             />
-
-            {/* FAB - Only show on All Chores tab for easy adding */}
-            {
-                activeTab === 'all_chores' && (
-                    <ExpandableFAB actions={FABActions} />
-                )
-            }
         </SafeAreaView >
     );
 };
@@ -453,296 +509,653 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: COLORS.background,
     },
-    // Navigation Bar
-    navContainer: {
-        paddingTop: SPACING.md,
-        paddingBottom: SPACING.sm,
+    content: {
         paddingHorizontal: SPACING.lg,
-        backgroundColor: COLORS.background,
-        zIndex: 10,
-    },
-    navBar: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.gray900,
-        borderRadius: BORDER_RADIUS.full,
-        padding: 4,
-        borderWidth: 1,
-        borderColor: COLORS.gray800,
-    },
-    navItem: {
-        flex: 1,
-        paddingVertical: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: BORDER_RADIUS.full,
-    },
-    navItemActive: {
-        backgroundColor: COLORS.gray800,
-        ...SHADOWS.sm,
-    },
-    navText: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-    },
-    navTextActive: {
-        color: COLORS.white,
-        fontWeight: '700',
     },
 
-    // Content Areas
-    content: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: SPACING.lg,
+    // Header
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         paddingVertical: SPACING.lg,
-        paddingBottom: 100,
     },
-    sectionTitle: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '700',
-        color: COLORS.textSecondary,
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-        marginBottom: SPACING.md,
-        marginTop: SPACING.sm,
-        marginLeft: SPACING.sm,
-    },
-    mainSectionTitle: {
-        fontSize: FONT_SIZE.md, // Larger for main header
-        fontWeight: '700',
+    headerTitle: {
+        fontSize: 28,
+        fontWeight: '800',
         color: COLORS.textPrimary,
-        marginBottom: SPACING.lg,
-        marginLeft: SPACING.sm,
     },
-    viewDescription: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.lg,
+    headerButton: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    // iOS-style Glass Action Bar
+    actionBar: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        borderRadius: BORDER_RADIUS.xl,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        marginBottom: SPACING.xl + SPACING.sm,
+        marginTop: SPACING.xs,
+        // Subtle inner shadow simulation
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.02,
+        shadowRadius: 0,
+    },
+    actionCard: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: SPACING.md + 2,
         paddingHorizontal: SPACING.sm,
     },
+    actionCardInner: {
+        alignItems: 'center',
+        gap: SPACING.xs + 2,
+    },
+    actionIconWrap: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    // Liquid Glass Icon Styles
+    liquidGlassIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+        position: 'relative',
+        // Outer glow
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+    },
+    liquidGlassBase: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 14,
+    },
+    liquidGlassHighlight: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '60%',
+        borderRadius: 14,
+    },
+    liquidGlassEdge: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        // Inner border glow
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+    },
+    actionIconGlow: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 14,
+    },
+    actionCardLabel: {
+        fontSize: 10,
+        fontWeight: '500',
+        color: COLORS.textTertiary,
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+    },
+    actionIndicator: {
+        position: 'absolute',
+        bottom: 0,
+        left: '25%',
+        right: '25%',
+        height: 2,
+        borderRadius: 1,
+        opacity: 0.6,
+    },
+    actionDivider: {
+        width: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        marginVertical: SPACING.lg,
+    },
 
-    // Carousel
-    carouselContent: {
-        paddingRight: SPACING.lg, // Space for last card
+
+    // Legacy styles (keeping for backwards compat)
+    quickActions: {
+        flexDirection: 'row',
         gap: SPACING.md,
+        marginBottom: SPACING.xl,
+    },
+    actionButton: {
+        flex: 1,
+        ...SHADOWS.md,
+    },
+    actionGradient: {
+        padding: SPACING.lg,
+        borderRadius: BORDER_RADIUS.xl,
+        alignItems: 'center',
+    },
+    actionIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: SPACING.sm,
+    },
+    actionTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '700',
+        color: COLORS.white,
+    },
+    actionSubtitle: {
+        fontSize: FONT_SIZE.xs,
+        color: 'rgba(255,255,255,0.7)',
+        marginTop: 2,
+    },
+    actionPill: {
+        flex: 1,
+        ...SHADOWS.sm,
+    },
+    pillGradient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: SPACING.md,
+        paddingHorizontal: SPACING.sm,
+        borderRadius: BORDER_RADIUS.lg,
+        gap: 6,
+    },
+    pillEmoji: {
+        fontSize: 16,
+    },
+    pillText: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '700',
+        color: COLORS.white,
+    },
+
+
+    // Sections
+    section: {
+        marginBottom: SPACING.xl,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         marginBottom: SPACING.md,
     },
-    carouselItem: {
-        width: CARD_WIDTH,
-    },
-
-    // Hero Card (Shared Styles)
-    heroCard: {
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        height: 220, // Fixed height for carousel uniformity
-        justifyContent: 'space-between',
-        ...SHADOWS.lg,
-    },
-    heroHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-    },
-    iconContainer: {
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        padding: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-    },
-    pointsBadge: {
-        backgroundColor: COLORS.warning,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: 4,
-        borderRadius: BORDER_RADIUS.full,
-    },
-    pointsText: {
-        color: COLORS.gray900,
-        fontWeight: '800',
-        fontSize: FONT_SIZE.xs,
-    },
-    heroContent: {
-        justifyContent: 'center',
-    },
-    heroEyebrow: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 10,
+    sectionTitle: {
+        fontSize: FONT_SIZE.md,
         fontWeight: '700',
-        marginBottom: 4,
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-    },
-    heroTitle: {
-        fontSize: 24,
-        fontWeight: '800',
-        color: COLORS.white,
-        marginBottom: SPACING.xs,
-        lineHeight: 30,
-    },
-    heroDesc: {
-        fontSize: FONT_SIZE.sm,
-        color: 'rgba(255,255,255,0.8)',
-    },
-    heroFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: SPACING.md,
-    },
-    heroDue: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-    },
-    tapHint: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    tapHintText: {
-        color: COLORS.white,
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-    },
-
-    // Pulse Content
-    pulseRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: SPACING.sm,
-    },
-    pulseItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.sm,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        padding: SPACING.sm,
-        borderRadius: BORDER_RADIUS.md,
-        flex: 1,
-        marginRight: 8,
-    },
-    pulseDay: {
-        color: COLORS.textSecondary,
-        fontSize: 10,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-    },
-    pulseTask: {
         color: COLORS.textPrimary,
+    },
+    sectionCount: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+    },
+    sectionSubtitle: {
         fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+    },
+    seeAll: {
+        fontSize: FONT_SIZE.sm,
         fontWeight: '600',
+        color: COLORS.primary,
     },
 
-    // Paging Dots
-    pagingIndicator: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        gap: 8,
-        marginBottom: SPACING.xl,
-    },
-    dot: {
-        width: 6,
-        height: 6,
-        borderRadius: BORDER_RADIUS.full,
-        backgroundColor: COLORS.gray800,
-    },
-    dotActive: {
-        backgroundColor: COLORS.primary,
-        width: 16,
-    },
-
-    // Radar Section (The New Design)
-    radarContainer: {
-        marginBottom: SPACING.xl,
-        gap: SPACING.lg,
-    },
-    radarSection: {
-        marginBottom: SPACING.sm,
-    },
-    radarSectionHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: SPACING.sm,
-        gap: SPACING.sm,
-    },
-    radarSectionTitle: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    radarSectionLine: {
-        flex: 1,
-        height: 1,
-        backgroundColor: COLORS.gray800,
-    },
-    radarGroup: {
-        gap: SPACING.sm,
-    },
-    radarItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: SPACING.md,
-        paddingHorizontal: SPACING.md,
+    // Your Turn Container
+    yourTurnContainer: {
         backgroundColor: COLORS.gray900,
         borderRadius: BORDER_RADIUS.lg,
         borderWidth: 1,
         borderColor: COLORS.gray800,
-        // Card shadow for depth
-        ...SHADOWS.sm,
+        overflow: 'hidden',
     },
-    radarItemHighlight: {
-        borderColor: COLORS.success + '30', // Subtle Green border
-        backgroundColor: COLORS.success + '05', // Very subtle green tint
+
+    // Empty States
+    emptyState: {
+        alignItems: 'center',
+        padding: SPACING.xl,
     },
-    radarLeft: {
-        gap: 2,
+    emptyEmoji: {
+        fontSize: 32,
+        marginBottom: SPACING.sm,
     },
-    radarTaskName: {
+    emptyText: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    emptySubtext: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+        marginTop: 4,
+    },
+    emptyCard: {
+        padding: SPACING.lg,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    emptyCardText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+    },
+
+    // Chore List
+    choreList: {
+        gap: SPACING.sm,
+    },
+    choreCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: COLORS.gray900,
+        padding: SPACING.md,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    choreCardUrgent: {
+        borderColor: COLORS.error + '50',
+        backgroundColor: COLORS.error + '08',
+    },
+    choreLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.md,
+    },
+    choreIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.md,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    choreIconUrgent: {
+        backgroundColor: COLORS.error + '20',
+    },
+    choreName: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    choreDue: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+        marginTop: 2,
+    },
+    choreDueUrgent: {
+        color: COLORS.error,
+    },
+    doneButton: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.success + '15',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    // Activity Feed
+    activityList: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        overflow: 'hidden',
+    },
+    activityItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: SPACING.md,
+        gap: SPACING.md,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.gray800,
+    },
+    activityContent: {
+        flex: 1,
+    },
+    activityText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+    },
+    activityUser: {
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    activityChore: {
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    activityTime: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+        marginTop: 2,
+    },
+    activityIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: BORDER_RADIUS.full,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    activityIconComplete: {
+        backgroundColor: COLORS.success + '20',
+    },
+    activityIconNudge: {
+        backgroundColor: COLORS.primary + '20',
+    },
+
+    // Fairness
+    fairnessCard: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        gap: SPACING.md,
+    },
+    fairnessRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    fairnessLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.sm,
+        width: 80,
+    },
+    fairnessName: {
         fontSize: FONT_SIZE.sm,
         fontWeight: '600',
         color: COLORS.textPrimary,
     },
-    textMuted: {
-        color: COLORS.textSecondary,
-    },
-    radarMetaText: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textSecondary,
-    },
-    radarRight: {
+    fairnessBarContainer: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
+        gap: SPACING.sm,
     },
-    radarAction: {
-        padding: 4,
+    fairnessBarBg: {
+        flex: 1,
+        height: 8,
         backgroundColor: COLORS.gray800,
         borderRadius: BORDER_RADIUS.full,
+        overflow: 'hidden',
     },
-    radarDate: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textTertiary,
-        fontWeight: '600',
+    fairnessBarFill: {
+        height: '100%',
+        borderRadius: BORDER_RADIUS.full,
+    },
+    fairnessCount: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        width: 24,
+        textAlign: 'right',
     },
 
-    // Teaser
-    gamificationTeaser: {
+    // Modals
+    modalContainer: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+        padding: SPACING.lg,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.xl,
+        paddingTop: SPACING.md,
+    },
+    modalTitle: {
+        fontSize: FONT_SIZE.xl,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    quickGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: SPACING.md,
+    },
+    quickOption: {
+        width: '47%',
+        backgroundColor: COLORS.gray900,
+        padding: SPACING.lg,
+        borderRadius: BORDER_RADIUS.xl,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    quickOptionIcon: {
+        width: 56,
+        height: 56,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.success + '20',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: SPACING.sm,
+    },
+    quickOptionText: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        textAlign: 'center',
+    },
+    roommateList: {
+        gap: SPACING.md,
+    },
+    roommateOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.gray900,
+        padding: SPACING.lg,
+        borderRadius: BORDER_RADIUS.xl,
+        gap: SPACING.md,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    roommateName: {
+        flex: 1,
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    // Modal overlay styles (for snitch modal)
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: COLORS.gray900,
+        borderTopLeftRadius: BORDER_RADIUS.xl,
+        borderTopRightRadius: BORDER_RADIUS.xl,
+        paddingTop: SPACING.md,
+        paddingBottom: SPACING.xl + 20,
+        paddingHorizontal: SPACING.lg,
+    },
+    modalHandle: {
+        width: 40,
+        height: 4,
+        backgroundColor: COLORS.gray700,
+        borderRadius: 2,
+        alignSelf: 'center',
+        marginBottom: SPACING.lg,
+    },
+    modalSubtitle: {
+        fontSize: FONT_SIZE.md,
+        color: COLORS.textSecondary,
+        marginBottom: SPACING.lg,
+    },
+    // Snitch modal options
+    snitchOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.gray800,
+        padding: SPACING.md,
+        borderRadius: BORDER_RADIUS.lg,
+        marginBottom: SPACING.sm,
+        gap: SPACING.md,
+    },
+    snitchOptionEmoji: {
+        fontSize: 24,
+    },
+    snitchOptionText: {
+        flex: 1,
+    },
+    snitchOptionTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    snitchOptionSubtitle: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
+
+    // Activity Detail Modal
+    activityDetailContent: {
+        padding: SPACING.lg,
+    },
+    activityDetailCard: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    activityDetailHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: SPACING.md,
-        backgroundColor: COLORS.gray900,
-        padding: SPACING.lg,
-        borderRadius: BORDER_RADIUS.lg,
-        justifyContent: 'center',
-        borderStyle: 'dashed',
-        borderWidth: 1,
-        borderColor: COLORS.gray700,
+        marginBottom: SPACING.lg,
     },
-    teaserText: {
+    activityDetailInfo: {
+        flex: 1,
+    },
+    activityDetailUser: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    activityDetailTime: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
+    activityDetailBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: SPACING.sm,
+        paddingVertical: 4,
+        borderRadius: BORDER_RADIUS.full,
+        gap: 4,
+    },
+    badgeComplete: {
+        backgroundColor: COLORS.success + '20',
+    },
+    badgeNudge: {
+        backgroundColor: COLORS.primary + '20',
+    },
+    activityDetailBadgeText: {
+        fontSize: FONT_SIZE.xs,
+        fontWeight: '600',
+    },
+    badgeTextComplete: {
+        color: COLORS.success,
+    },
+    badgeTextNudge: {
+        color: COLORS.primary,
+    },
+    activityDetailBody: {
+        borderTopWidth: 1,
+        borderTopColor: COLORS.gray800,
+        paddingTop: SPACING.lg,
+    },
+    activityDetailLabel: {
+        fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
         fontWeight: '600',
-        fontStyle: 'italic',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: SPACING.xs,
+    },
+    activityDetailChore: {
+        fontSize: FONT_SIZE.xl,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    // Kudos Section
+    kudosSection: {
+        marginTop: SPACING.lg,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    kudosTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: SPACING.md,
+    },
+    kudosRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+    },
+    kudosButton: {
+        width: 52,
+        height: 52,
+        borderRadius: BORDER_RADIUS.lg,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    kudosEmoji: {
+        fontSize: 24,
+    },
+    // Activity Actions
+    activityActions: {
+        marginTop: SPACING.lg,
+    },
+    activityActionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: COLORS.gray900,
+        paddingVertical: SPACING.md,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        gap: SPACING.sm,
+    },
+    activityActionText: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.primary,
     },
 });

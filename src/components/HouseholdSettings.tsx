@@ -1,48 +1,83 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Modal, TextInput } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Modal, TextInput, Platform, Share, TouchableWithoutFeedback, Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons'
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, GRADIENTS } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar } from './Avatar';
 import * as Clipboard from 'expo-clipboard';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useAuthStore } from '../stores/useAuthStore';
 
-// Mock Data
-const MEMBERS = [
-    { id: 'u1', name: 'Alex', color: '#818CF8', role: 'Admin' },
-    { id: 'u2', name: 'Sam', color: '#34D399', role: 'Member' },
-    { id: 'u3', name: 'Jordan', color: '#F472B6', role: 'Member' },
-    { id: 'u4', name: 'Casey', color: '#FBBF24', role: 'Member' },
-];
-
-const WIFI_INFO = {
-    ssid: 'TheLoft_5G',
-    password: 'pizza-planet-408',
-};
+const HOUSE_EMOJIS = ['🏠', '🏡', '🏢', '🏘️', '🏰', '🛖', '🏗️', '🌆', '🌃', '🌇'];
 
 export const HouseholdSettings = () => {
+    // Real data from stores
+    const { household, members, memberships, updateHousehold } = useHouseholdStore();
+    const { user } = useAuthStore();
+
     const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
     const [isMemberMenuVisible, setIsMemberMenuVisible] = useState(false);
-    const [selectedMember, setSelectedMember] = useState<typeof MEMBERS[0] | null>(null);
-    const [houseName, setHouseName] = useState('The Loft 408');
-    const [houseEmoji, setHouseEmoji] = useState('🏠');
-    const [isVacationMode, setIsVacationMode] = useState(false);
+    const [selectedMember, setSelectedMember] = useState<typeof members[0] | null>(null);
+
+    // Initialize state from real household data
+    const [houseName, setHouseName] = useState(household?.name || 'My Household');
+    const [houseEmoji, setHouseEmoji] = useState(household?.emoji || '🏠');
+    const [houseAddress, setHouseAddress] = useState(household?.address || 'No address set');
+    const [isVacationMode, setIsVacationMode] = useState(user?.isVacationMode || false);
     const [isInviteModalVisible, setIsInviteModalVisible] = useState(false);
-    const [inviteCode, setInviteCode] = useState('LOFT-408-X');
+
+    // Sync state when household data changes
+    useEffect(() => {
+        if (household) {
+            setHouseName(household.name);
+            setHouseEmoji(household.emoji);
+            setHouseAddress(household.address || 'No address set');
+        }
+    }, [household]);
+
+    // Get the real invite code from household
+    const inviteCode = household?.inviteCode || '------';
 
     const copyToClipboard = async (text: string) => {
         await Clipboard.setStringAsync(text);
-        // In a real app, show a toast here
+        // Show feedback
+        if (Platform.OS === 'web') {
+            window.alert('Copied to clipboard!');
+        }
     };
 
-    const handleSaveProfile = () => {
+    const handleShareInvite = async () => {
+        if (!household?.inviteCode) return;
+        try {
+            await Share.share({
+                message: `Join my household "${household.name}" on Roommate App!\n\nUse code: ${household.inviteCode}\n\nOr click here: roommate-app://invite/${household.inviteCode}`,
+            });
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const handleSaveHousehold = async () => {
+        if (houseName.trim()) {
+            await updateHousehold({
+                name: houseName.trim(),
+                emoji: houseEmoji,
+                address: houseAddress,
+            });
+        }
         setIsEditProfileVisible(false);
-        // In a real app, save to backend
     };
 
     const handleMemberAction = (action: string) => {
         console.log(`Action ${action} on ${selectedMember?.name}`);
         setIsMemberMenuVisible(false);
         setSelectedMember(null);
+    };
+
+    // Get member role from memberships
+    const getMemberRole = (userId: string): string => {
+        const membership = memberships.find(m => m.userId === userId);
+        return membership?.role === 'admin' ? 'Admin' : 'Member';
     };
 
     return (
@@ -59,14 +94,25 @@ export const HouseholdSettings = () => {
                         <Text style={styles.houseEmoji}>{houseEmoji}</Text>
                     </View>
                     <Text style={styles.houseName}>{houseName}</Text>
-                    <Text style={styles.houseAddress}>123 Main St, Apt 408</Text>
+
+                    {/* Address with Copy Button */}
+                    <TouchableOpacity
+                        style={styles.addressRow}
+                        onPress={() => copyToClipboard(houseAddress)}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.houseAddress}>{houseAddress}</Text>
+                        <View style={styles.addressCopyButton}>
+                            <Feather name="copy" size={12} color="rgba(255,255,255,0.9)" />
+                        </View>
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                         style={styles.editButton}
                         onPress={() => setIsEditProfileVisible(true)}
                     >
                         <Feather name="edit-2" size={16} color={COLORS.white} />
-                        <Text style={styles.editButtonText}>Edit Profile</Text>
+                        <Text style={styles.editButtonText}>Edit House</Text>
                     </TouchableOpacity>
                 </LinearGradient>
             </View>
@@ -74,31 +120,49 @@ export const HouseholdSettings = () => {
             {/* Members Section */}
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Members</Text>
-                    <TouchableOpacity onPress={() => setIsInviteModalVisible(true)}>
-                        <Text style={styles.linkText}>+ Invite</Text>
-                    </TouchableOpacity>
+                    <Text style={styles.sectionTitle}>Members ({members.length})</Text>
                 </View>
                 <View style={styles.card}>
-                    {MEMBERS.map((member, index) => (
-                        <View key={member.id} style={[styles.memberRow, index !== MEMBERS.length - 1 && styles.borderBottom]}>
+                    {members.map((member, index: number) => (
+                        <View key={member.id} style={[styles.memberRow, index !== members.length - 1 && styles.borderBottom]}>
                             <View style={styles.memberInfo}>
-                                <Avatar name={member.name} color={member.color} size="sm" />
+                                <Avatar name={member.name} color={member.avatarColor || COLORS.primary} size="sm" />
                                 <View>
                                     <Text style={styles.memberName}>{member.name}</Text>
-                                    <Text style={styles.memberRole}>{member.role}</Text>
+                                    <Text style={styles.memberRole}>{getMemberRole(member.id)}</Text>
                                 </View>
                             </View>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setSelectedMember(member);
-                                    setIsMemberMenuVisible(true);
-                                }}
-                            >
-                                <Feather name="more-vertical" size={20} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
+                            {/* Only show menu for non-self members */}
+                            {member.id !== user?.id && (
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setSelectedMember(member);
+                                        setIsMemberMenuVisible(true);
+                                    }}
+                                >
+                                    <Feather name="more-vertical" size={20} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     ))}
+
+                    {/* Add Member Row */}
+                    <TouchableOpacity
+                        style={[styles.memberRow, styles.addMemberRow]}
+                        onPress={() => setIsInviteModalVisible(true)}
+                    >
+                        <View style={styles.memberInfo}>
+                            <View style={[styles.wifiIcon, styles.addMemberIcon]}>
+                                <Feather name="plus" size={20} color={COLORS.textSecondary} />
+                            </View>
+                            <Text style={styles.addMemberText}>Add Member</Text>
+                        </View>
+                        <Feather name="chevron-right" size={20} color={COLORS.gray600} />
+                    </TouchableOpacity>
+
+                    {members.length === 0 && (
+                        <Text style={styles.emptyText}>No members yet. Invite someone!</Text>
+                    )}
                 </View>
             </View>
 
@@ -106,7 +170,7 @@ export const HouseholdSettings = () => {
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Essentials</Text>
 
-                {/* WiFi Card */}
+                {/* WiFi Card - TODO: Wire up to household_essentials table */}
                 <View style={styles.card}>
                     <View style={styles.wifiRow}>
                         <View style={styles.wifiIcon}>
@@ -114,10 +178,14 @@ export const HouseholdSettings = () => {
                         </View>
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>WiFi Network</Text>
-                            <Text style={styles.wifiValue}>{WIFI_INFO.ssid}</Text>
+                            <Text style={styles.wifiValue}>Tap to add WiFi info</Text>
                         </View>
-                        <TouchableOpacity onPress={() => copyToClipboard(WIFI_INFO.ssid)} style={styles.copyButton}>
-                            <Feather name="copy" size={18} color={COLORS.textSecondary} />
+                        <TouchableOpacity onPress={() => {
+                            if (Platform.OS === 'web') {
+                                window.alert('WiFi settings coming soon!');
+                            }
+                        }} style={styles.copyButton}>
+                            <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
                         </TouchableOpacity>
                     </View>
                     <View style={styles.divider} />
@@ -127,10 +195,14 @@ export const HouseholdSettings = () => {
                         </View>
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>Password</Text>
-                            <Text style={styles.wifiValue}>{WIFI_INFO.password}</Text>
+                            <Text style={styles.wifiValue}>••••••••</Text>
                         </View>
-                        <TouchableOpacity onPress={() => copyToClipboard(WIFI_INFO.password)} style={styles.copyButton}>
-                            <Feather name="copy" size={18} color={COLORS.textSecondary} />
+                        <TouchableOpacity onPress={() => {
+                            if (Platform.OS === 'web') {
+                                window.alert('WiFi settings coming soon!');
+                            }
+                        }} style={styles.copyButton}>
+                            <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -188,7 +260,7 @@ export const HouseholdSettings = () => {
                     activeOpacity={1}
                     onPress={() => setIsInviteModalVisible(false)}
                 >
-                    <View style={styles.modalContent}>
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Invite Roommate</Text>
                             <TouchableOpacity onPress={() => setIsInviteModalVisible(false)}>
@@ -197,7 +269,7 @@ export const HouseholdSettings = () => {
                         </View>
 
                         <Text style={styles.modalDescription}>
-                            Share this code with your roommate to let them join "The Loft 408".
+                            Share this code with your roommate to let them join "{household?.name}".
                         </Text>
 
                         <TouchableOpacity
@@ -208,12 +280,14 @@ export const HouseholdSettings = () => {
                             <Feather name="copy" size={20} color={COLORS.primary} />
                         </TouchableOpacity>
 
-                        <Text style={styles.codeExpiry}>Expires in 48 hours</Text>
+                        <Text style={styles.codeExpiry}>
+                            Expires {household?.inviteExpiresAt ? new Date(household.inviteExpiresAt).toLocaleDateString() : 'in 30 days'}
+                        </Text>
 
-                        <TouchableOpacity style={styles.shareButton}>
+                        <TouchableOpacity style={styles.shareButton} onPress={handleShareInvite}>
                             <Text style={styles.shareButtonText}>Share Code</Text>
                         </TouchableOpacity>
-                    </View>
+                    </Pressable>
                 </TouchableOpacity>
             </Modal>
 
@@ -229,9 +303,9 @@ export const HouseholdSettings = () => {
                     activeOpacity={1}
                     onPress={() => setIsEditProfileVisible(false)}
                 >
-                    <View style={styles.modalContent}>
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Edit House Profile</Text>
+                            <Text style={styles.modalTitle}>Edit House</Text>
                             <TouchableOpacity onPress={() => setIsEditProfileVisible(false)}>
                                 <Feather name="x" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
@@ -249,20 +323,38 @@ export const HouseholdSettings = () => {
                         </View>
 
                         <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>House Emoji</Text>
+                            <Text style={styles.inputLabel}>House Icon</Text>
+                            <View style={styles.emojiPickerGrid}>
+                                {HOUSE_EMOJIS.map((emoji) => (
+                                    <TouchableOpacity
+                                        key={emoji}
+                                        style={[
+                                            styles.emojiPickerButton,
+                                            houseEmoji === emoji && styles.emojiPickerButtonSelected
+                                        ]}
+                                        onPress={() => setHouseEmoji(emoji)}
+                                    >
+                                        <Text style={styles.emojiPickerText}>{emoji}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.inputLabel}>House Address</Text>
                             <TextInput
                                 style={styles.input}
-                                value={houseEmoji}
-                                onChangeText={setHouseEmoji}
-                                placeholder="e.g. 🏠"
+                                value={houseAddress}
+                                onChangeText={setHouseAddress}
+                                placeholder="e.g. 123 Main St, Apt 408"
                                 placeholderTextColor={COLORS.textSecondary}
                             />
                         </View>
 
-                        <TouchableOpacity style={styles.shareButton} onPress={handleSaveProfile}>
+                        <TouchableOpacity style={styles.shareButton} onPress={handleSaveHousehold}>
                             <Text style={styles.shareButtonText}>Save Changes</Text>
                         </TouchableOpacity>
-                    </View>
+                    </Pressable>
                 </TouchableOpacity>
             </Modal>
 
@@ -278,7 +370,7 @@ export const HouseholdSettings = () => {
                     activeOpacity={1}
                     onPress={() => setIsMemberMenuVisible(false)}
                 >
-                    <View style={styles.modalContent}>
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Manage {selectedMember?.name}</Text>
                             <TouchableOpacity onPress={() => setIsMemberMenuVisible(false)}>
@@ -302,7 +394,7 @@ export const HouseholdSettings = () => {
                             <Feather name="user-x" size={20} color={COLORS.error} />
                             <Text style={[styles.menuItemText, { color: COLORS.error }]}>Remove from House</Text>
                         </TouchableOpacity>
-                    </View>
+                    </Pressable>
                 </TouchableOpacity>
             </Modal>
         </ScrollView>
@@ -345,7 +437,20 @@ const styles = StyleSheet.create({
     houseAddress: {
         fontSize: FONT_SIZE.sm,
         color: 'rgba(255,255,255,0.8)',
+    },
+    addressRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.xs,
         marginBottom: SPACING.lg,
+    },
+    addressCopyButton: {
+        width: 22,
+        height: 22,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     editButton: {
         flexDirection: 'row',
@@ -491,7 +596,7 @@ const styles = StyleSheet.create({
         maxWidth: 340,
         borderWidth: 1,
         borderColor: COLORS.gray800,
-        ...SHADOWS.xl,
+        ...SHADOWS.lg,
     },
     modalHeader: {
         flexDirection: 'row',
@@ -580,5 +685,51 @@ const styles = StyleSheet.create({
         height: 1,
         backgroundColor: COLORS.gray800,
         marginVertical: SPACING.sm,
+    },
+    emptyText: {
+        color: COLORS.textSecondary,
+        fontSize: FONT_SIZE.sm,
+        textAlign: 'center',
+        padding: SPACING.lg,
+    },
+    addMemberRow: {
+        borderTopWidth: 1,
+        borderTopColor: COLORS.gray700,
+        borderStyle: 'dashed', // dashed border top to separate from list
+    },
+    addMemberIcon: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
+        borderStyle: 'dashed',
+    },
+    addMemberText: {
+        fontSize: FONT_SIZE.md,
+        color: COLORS.textSecondary,
+        fontWeight: '500',
+    },
+    emojiPickerGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: SPACING.sm,
+        justifyContent: 'center',
+        marginTop: SPACING.xs,
+    },
+    emojiPickerButton: {
+        width: 44,
+        height: 44,
+        borderRadius: BORDER_RADIUS.md,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
+    },
+    emojiPickerButtonSelected: {
+        backgroundColor: COLORS.primary + '20',
+        borderColor: COLORS.primary,
+    },
+    emojiPickerText: {
+        fontSize: 24,
     },
 });

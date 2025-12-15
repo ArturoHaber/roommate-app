@@ -6,17 +6,25 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
+  Platform,
+  Modal,
+  TextInput,
+  Linking,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Card, Avatar, HouseholdSettings } from '../components';
+import { Card, Avatar, HouseholdSettings, LinkAccountModal } from '../components';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useChoreStore } from '../stores/useChoreStore';
 
 type SettingsTab = 'personal' | 'household';
+
+// Avatar color options
+const AVATAR_COLORS = ['#818CF8', '#34D399', '#F472B6', '#FBBF24', '#60A5FA', '#F87171', '#A78BFA', '#2DD4BF'];
 
 interface SettingsItemProps {
   icon: string;
@@ -56,10 +64,15 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
 );
 
 export const ProfileScreen: React.FC = () => {
-  const { user, logout } = useAuthStore();
+  const { user, signOut, updateProfile, deleteAccount } = useAuthStore();
   const { household, leaveHousehold } = useHouseholdStore();
-  const { assignments, getLeaderboard } = useChoreStore();
+  const { getLeaderboard } = useChoreStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>('personal');
+  const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
+  const [isLinkModalVisible, setIsLinkModalVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editAvatarColor, setEditAvatarColor] = useState('');
 
   if (!user) return null;
 
@@ -70,36 +83,70 @@ export const ProfileScreen: React.FC = () => {
   const myBonusChores = myStats?.bonusChores || 0;
 
   const handleLogout = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: () => {
-            leaveHousehold();
-            logout();
-          }
-        },
-      ]
-    );
+    // Check if anonymous (no email implies anonymous in our system logic so far)
+    if (!user.email) {
+      setIsLinkModalVisible(true);
+      return;
+    }
+
+    // Standard logout
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        signOut();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Log Out',
+            style: 'destructive',
+            onPress: () => signOut() // ONLY signOut, do not leave household
+          },
+        ]
+      );
+    }
   };
 
   const handleLeaveHousehold = () => {
-    Alert.alert(
-      'Leave Household',
-      'Are you sure you want to leave this household? You can rejoin with the invite code.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Leave',
-          style: 'destructive',
-          onPress: () => leaveHousehold()
-        },
-      ]
-    );
+    // Use window.confirm on web, Alert.alert on native
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to leave this household? You can rejoin with the invite code.')) {
+        leaveHousehold(user.id);
+      }
+    } else {
+      Alert.alert(
+        'Leave Household',
+        'Are you sure you want to leave this household? You can rejoin with the invite code.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Leave',
+            style: 'destructive',
+            onPress: () => leaveHousehold(user.id)
+          },
+        ]
+      );
+    }
+  };
+
+  const openEditProfile = () => {
+    setEditName(user.name);
+    setEditEmail(user.email);
+    setEditAvatarColor(user.avatarColor || AVATAR_COLORS[0]);
+    setIsEditProfileVisible(true);
+  };
+
+  const handleSaveProfile = () => {
+    if (editName.trim()) {
+      updateProfile({
+        name: editName.trim(),
+        avatarColor: editAvatarColor,
+      });
+    }
+    setIsEditProfileVisible(false);
   };
 
   return (
@@ -134,10 +181,20 @@ export const ProfileScreen: React.FC = () => {
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
           >
-            {/* Profile Header */}
+            {/* Profile Header with Edit Button */}
             <View style={styles.profileHeader}>
-              <Avatar name={user.name} color={user.avatarColor} size="xl" />
-              <Text style={styles.userName}>{user.name}</Text>
+              <View style={styles.avatarContainer}>
+                <Avatar name={user.name} color={user.avatarColor} size="xl" />
+                <TouchableOpacity style={styles.editAvatarButton} onPress={openEditProfile}>
+                  <Feather name="edit-2" size={14} color={COLORS.white} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.nameRow}>
+                <Text style={styles.userName}>{user.name}</Text>
+                <TouchableOpacity style={styles.editNameButton} onPress={openEditProfile}>
+                  <Feather name="edit-2" size={16} color={COLORS.primary} />
+                </TouchableOpacity>
+              </View>
               <Text style={styles.userEmail}>{user.email}</Text>
             </View>
 
@@ -166,21 +223,58 @@ export const ProfileScreen: React.FC = () => {
               <Text style={styles.sectionTitle}>App Settings</Text>
               <Card padding="none">
                 <SettingsItem
+                  icon="user"
+                  label="Edit Profile"
+                  onPress={openEditProfile}
+                />
+                <View style={styles.divider} />
+                {household && (
+                  <>
+                    <SettingsItem
+                      icon="home"
+                      label="Household Settings"
+                      onPress={() => setActiveTab('household')}
+                    />
+                    <View style={styles.divider} />
+                  </>
+                )}
+                <SettingsItem
                   icon="bell"
                   label="Notifications"
-                  onPress={() => { }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.alert('Push notification settings will be available soon!');
+                    } else {
+                      Alert.alert('Notifications', 'Push notification settings will be available soon!', [{ text: 'OK' }]);
+                    }
+                  }}
                 />
                 <View style={styles.divider} />
                 <SettingsItem
                   icon="moon"
                   label="Dark Mode"
-                  value="Coming soon"
+                  value="Always On"
                 />
                 <View style={styles.divider} />
                 <SettingsItem
                   icon="help-circle"
                   label="Help & Support"
-                  onPress={() => { }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      if (window.confirm('Need help with CribUp?\\n\\nContact: support@cribup.app\\n\\nClick OK to send an email.')) {
+                        window.open('mailto:support@cribup.app?subject=CribUp%20Support', '_blank');
+                      }
+                    } else {
+                      Alert.alert(
+                        'Help & Support',
+                        'Need help with CribUp?\n\n📧 Contact: support@cribup.app\n\n💡 Found a bug? Use the in-app feedback option.',
+                        [
+                          { text: 'Close' },
+                          { text: 'Send Email', onPress: () => Linking.openURL('mailto:support@cribup.app?subject=CribUp%20Support') }
+                        ]
+                      );
+                    }
+                  }}
                 />
               </Card>
             </View>
@@ -208,7 +302,22 @@ export const ProfileScreen: React.FC = () => {
               </Card>
             </View>
 
-            <Text style={styles.version}>Roommate App v1.0.0</Text>
+            {/* Developer Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Developer</Text>
+              <Card padding="none">
+                <SettingsItem
+                  icon="play"
+                  label="Replay Onboarding"
+                  onPress={() => {
+                    // Clear household to trigger onboarding
+                    useHouseholdStore.getState().clearHousehold();
+                  }}
+                />
+              </Card>
+            </View>
+
+            <Text style={styles.version}>CribUp v1.0.0 (Dev)</Text>
 
             <View style={styles.bottomSpacer} />
           </ScrollView>
@@ -230,9 +339,99 @@ export const ProfileScreen: React.FC = () => {
         )}
 
       </View>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={isEditProfileVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsEditProfileVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setIsEditProfileVisible(false)}
+        >
+          <Pressable
+            style={styles.modalContent}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Profile</Text>
+              <TouchableOpacity onPress={() => setIsEditProfileVisible(false)}>
+                <Feather name="x" size={24} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Avatar Preview */}
+            <View style={styles.avatarPreview}>
+              <Avatar name={editName || 'U'} color={editAvatarColor} size="xl" />
+            </View>
+
+            {/* Avatar Color Picker */}
+            <Text style={styles.inputLabel}>Avatar Color</Text>
+            <View style={styles.colorPicker}>
+              {AVATAR_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    editAvatarColor === color && styles.colorOptionSelected,
+                  ]}
+                  onPress={() => setEditAvatarColor(color)}
+                >
+                  {editAvatarColor === color && (
+                    <Feather name="check" size={16} color={COLORS.white} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Name Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Name</Text>
+              <TextInput
+                style={styles.input}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Your name"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+
+            {/* Email Display (read-only) */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <View style={[styles.input, styles.inputDisabled]}>
+                <Text style={styles.inputDisabledText}>{user.email}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <LinkAccountModal
+        visible={isLinkModalVisible}
+        onClose={() => setIsLinkModalVisible(false)}
+        onSuccess={() => {
+          // User linked account successfully. 
+          // We can show a toast or just close.
+          // They are now permanent, so next logout will be standard.
+          setIsLinkModalVisible(false);
+        }}
+        onDelete={async () => {
+          await deleteAccount();
+          setIsLinkModalVisible(false);
+        }}
+      />
     </SafeAreaView>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -403,5 +602,124 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
     textAlign: 'center',
+  },
+  // Avatar & Name Edit
+  avatarContainer: {
+    position: 'relative',
+  },
+  editAvatarButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.background,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  editNameButton: {
+    width: 28,
+    height: 28,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.primary + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  modalContent: {
+    backgroundColor: COLORS.gray900,
+    borderRadius: BORDER_RADIUS.xl,
+    padding: SPACING.xl,
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+    borderColor: COLORS.gray800,
+    ...SHADOWS.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZE.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  avatarPreview: {
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  colorPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    justifyContent: 'center',
+    marginBottom: SPACING.lg,
+  },
+  colorOption: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.full,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: COLORS.white,
+  },
+  inputGroup: {
+    marginBottom: SPACING.md,
+  },
+  inputLabel: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+  },
+  input: {
+    backgroundColor: COLORS.gray800,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    color: COLORS.textPrimary,
+    fontSize: FONT_SIZE.md,
+    borderWidth: 1,
+    borderColor: COLORS.gray700,
+  },
+  inputDisabled: {
+    opacity: 0.6,
+  },
+  inputDisabledText: {
+    color: COLORS.textSecondary,
+    fontSize: FONT_SIZE.md,
+  },
+  saveButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  saveButtonText: {
+    color: COLORS.white,
+    fontWeight: '700',
+    fontSize: FONT_SIZE.md,
   },
 });

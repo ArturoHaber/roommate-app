@@ -29,7 +29,7 @@ export const ExpenseCard: React.FC<ExpenseCardProps> = ({
   onPress,
 }) => {
   const isPaidByMe = expense.paidBy === currentUserId;
-  const mySplit = expense.splits.find((s) => s.userId === currentUserId);
+  const mySplit = expense.splits?.find((s) => s.userId === currentUserId);
   const myAmount = mySplit?.amount || 0;
   const categoryColor = COLORS.categories[expense.category] || COLORS.gray500;
 
@@ -38,13 +38,13 @@ export const ExpenseCard: React.FC<ExpenseCardProps> = ({
       <View style={styles.content}>
         <View style={styles.leftSection}>
           <View style={[styles.iconContainer, { backgroundColor: categoryColor + '20' }]}>
-            <Feather 
-              name={CATEGORY_ICONS[expense.category] as any} 
-              size={20} 
-              color={categoryColor} 
+            <Feather
+              name={CATEGORY_ICONS[expense.category] as any}
+              size={20}
+              color={categoryColor}
             />
           </View>
-          
+
           <View style={styles.info}>
             <Text style={styles.description} numberOfLines={1}>
               {expense.description}

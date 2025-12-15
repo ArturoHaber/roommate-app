@@ -1,94 +1,240 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, PanResponder, Dimensions, Share } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar } from './Avatar';
+import { useAuthStore } from '../stores/useAuthStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
 
-// Mock Data
-const MEMBERS = [
-    { id: 'u1', name: 'Alex', color: '#818CF8', emoji: '😴', status: 'Sleeping' },
-    { id: 'u2', name: 'Sam', color: '#34D399', emoji: '👨‍💻', status: 'Working' },
-    { id: 'u3', name: 'Jordan', color: '#F472B6', emoji: '🎮', status: 'Gaming' },
-    { id: 'u4', name: 'Casey', color: '#FBBF24', emoji: '🏃', status: 'Gym' },
-];
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const MAX_DRAG = 120; // Max drag distance
+const QUOTE_BOX_WIDTH = MAX_DRAG - 8; // Width of revealed quote area
 
 const STATUS_EMOJIS = ['😴', '👨‍💻', '🎮', '🏃', '🤔', '👀', '🏠', '🍕', '🎉', '🧘', '🎧', '📚'];
 
 const DAILY_BRIEFING = "The kitchen is spotless, but the recycling is piling up. Trash day is tomorrow!";
 
+// Easter egg: Roommate wisdom quotes
+const ROOMMATE_WISDOM = [
+    { emoji: '🧘', text: "He who finishes the toilet paper must replace it." },
+    { emoji: '🍳', text: "The best roommate cooks for two." },
+    { emoji: '🎵', text: "Headphones after 11pm." },
+    { emoji: '🧹', text: "A clean kitchen is a happy kitchen." },
+    { emoji: '🌙', text: "The 2am fridge light sees all." },
+    { emoji: '🚿', text: "Short showers = hot water for all." },
+    { emoji: '🗑️', text: "Trash jenga is not a sport." },
+    { emoji: '🔑', text: "Lock the door. Every time." },
+    { emoji: '🧀', text: "Label your food or it's fair game." },
+    { emoji: '💸', text: "Venmo requests age like wine." },
+    { emoji: '🎮', text: "Share the TV, unite the house." },
+    { emoji: '🛋️', text: "Common area = shared duty." },
+    { emoji: '☕', text: "First awake makes coffee." },
+    { emoji: '🐱', text: "Feed the pet, even if not yours." },
+    { emoji: '📦', text: "Your packages, your problem." },
+];
+
 import { useNavigation } from '@react-navigation/native';
 
 export const HouseStatus = () => {
     const navigation = useNavigation();
-    const [currentUser, setCurrentUser] = useState(MEMBERS[0]);
-    const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
 
-    const handleStatusSelect = (emoji: string) => {
-        setCurrentUser({ ...currentUser, emoji });
+    // Real data from stores
+    const { user, updateProfile } = useAuthStore();
+    const { members } = useHouseholdStore();
+
+    // Current user for display (authenticated user)
+    const currentUser = user ? {
+        id: user.id,
+        name: user.name,
+        color: user.avatarColor || '#818CF8',
+        emoji: user.statusEmoji || '👀',
+        status: user.statusText || 'Available',
+    } : { id: '', name: 'User', color: '#818CF8', emoji: '👀', status: 'Available' };
+
+    const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
+    const [currentWisdom, setCurrentWisdom] = useState(ROOMMATE_WISDOM[0]);
+
+    // Safe guard: If no household (e.g. anonymous user just authenticated but household creation lagging), return empty
+    // or a placeholder.
+    const { household } = useHouseholdStore(); // Need to get household to check
+
+    // If no household, we can't show status correctly yet. 
+    // Ideally the dashboard shouldn't render, but as a safeguard:
+    if (!members.length) {
+        return null;
+    }
+
+    // Use ref for index since PanResponder doesn't see state updates
+    const quoteIndexRef = useRef(0);
+    const hasPickedQuote = useRef(false);
+
+    // Animated value for X-only swipe with tension
+    const translateX = useRef(new Animated.Value(0)).current;
+    const scale = useRef(new Animated.Value(1)).current;
+
+    const handleStatusSelect = async (emoji: string) => {
+        await updateProfile({ statusEmoji: emoji });
         setIsStatusModalVisible(false);
     };
 
+    // Pick next quote (only once per drag)
+    const pickNextQuote = () => {
+        if (!hasPickedQuote.current) {
+            hasPickedQuote.current = true;
+            quoteIndexRef.current = (quoteIndexRef.current + 1) % ROOMMATE_WISDOM.length;
+            setCurrentWisdom(ROOMMATE_WISDOM[quoteIndexRef.current]);
+        }
+    };
+
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                // Only respond to horizontal movement
+                return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 20;
+            },
+            onPanResponderGrant: () => {
+                hasPickedQuote.current = false; // Reset for new drag
+                Animated.spring(scale, {
+                    toValue: 0.98,
+                    useNativeDriver: true,
+                    tension: 300,
+                    friction: 20,
+                }).start();
+            },
+            onPanResponderMove: (_, gestureState) => {
+                // X-axis only with increasing tension as you drag further
+                // Using a curve that slows down as you approach max
+                const rawX = gestureState.dx;
+
+                // Only allow dragging left (negative X) to reveal right side
+                if (rawX < 0) {
+                    // Apply tension: the more you drag, the harder it gets
+                    const progress = Math.min(Math.abs(rawX) / 200, 1);
+                    const tension = 1 - (progress * 0.6); // Starts at 1, goes down to 0.4
+                    const dampedX = Math.max(-MAX_DRAG, rawX * tension);
+                    translateX.setValue(dampedX);
+
+                    // Trigger quote reveal when dragged enough
+                    if (Math.abs(dampedX) > 40) {
+                        pickNextQuote();
+                    }
+                } else {
+                    // Small resistance for right drag
+                    translateX.setValue(rawX * 0.15);
+                }
+            },
+            onPanResponderRelease: () => {
+                hasPickedQuote.current = false; // Reset
+
+                // Spring back with elastic feel
+                Animated.parallel([
+                    Animated.spring(translateX, {
+                        toValue: 0,
+                        useNativeDriver: true,
+                        tension: 60,
+                        friction: 8,
+                    }),
+                    Animated.spring(scale, {
+                        toValue: 1,
+                        useNativeDriver: true,
+                        tension: 200,
+                        friction: 15,
+                    }),
+                ]).start();
+            },
+        })
+    ).current;
+
+
+
     return (
         <View style={styles.container}>
-            {/* Main Card */}
-            <LinearGradient
-                colors={[COLORS.gray800, COLORS.gray900]}
-                style={styles.card}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
+            {/* ... (keep existing quoteBox code) ... */}
+            <View style={styles.quoteBox}>
+                <Text style={styles.quoteEmoji}>{currentWisdom.emoji}</Text>
+                <Text style={styles.quoteText} numberOfLines={4}>{currentWisdom.text}</Text>
+            </View>
+
+            {/* Main Card (swipeable horizontally) */}
+            <Animated.View
+                style={[
+                    styles.cardWrapper,
+                    {
+                        transform: [
+                            { translateX: translateX },
+                            { scale: scale },
+                        ],
+                    },
+                ]}
+                {...panResponder.panHandlers}
             >
-                {/* Header Section */}
-                <View style={styles.header}>
-                    <View>
-                        <Text style={styles.greeting}>Good Morning, {currentUser.name}</Text>
-                        <Text style={styles.houseName}>The Loft 408</Text>
-                    </View>
-
-                    {/* User Status Trigger */}
-                    <TouchableOpacity
-                        style={[styles.userStatusButton, { borderColor: currentUser.color }]}
-                        onPress={() => setIsStatusModalVisible(true)}
-                    >
-                        <Text style={styles.userStatusEmoji}>{currentUser.emoji}</Text>
-                        <View style={[styles.activeDot, { backgroundColor: currentUser.color }]} />
-                    </TouchableOpacity>
-                </View>
-
-                {/* AI Briefing */}
-                <View style={styles.briefingContainer}>
-                    <Feather name="cpu" size={14} color={COLORS.primary} style={{ marginTop: 2 }} />
-                    <Text style={styles.briefingText}>
-                        {DAILY_BRIEFING}
-                    </Text>
-                </View>
-
-                {/* Divider */}
-                <View style={styles.divider} />
-
-                {/* House Health Entry Point - Clearly Clickable */}
-                <TouchableOpacity
-                    style={styles.healthCard}
-                    onPress={() => navigation.navigate('HousePulse' as never)}
-                    activeOpacity={0.8}
+                <LinearGradient
+                    colors={[COLORS.gray800, COLORS.gray900]}
+                    style={styles.card}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
                 >
-                    <View style={styles.healthLeft}>
-                        <View style={styles.healthIconContainer}>
-                            <Feather name="activity" size={20} color={COLORS.success} />
+                    {/* Header Section */}
+                    <View style={styles.header}>
+                        <View style={{ flex: 1, marginRight: SPACING.md }}>
+                            <Text
+                                style={styles.greeting}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                            >
+                                Good Morning, {currentUser.name}
+                            </Text>
+                            <Text style={styles.houseName}>{household?.name || 'My Household'}</Text>
                         </View>
-                        <View>
-                            <Text style={styles.healthLabel}>HOUSE HEALTH</Text>
-                            <Text style={[styles.healthValue, { color: COLORS.success }]}>72% - Sparkling ✨</Text>
-                        </View>
-                    </View>
-                    <View style={styles.healthRight}>
-                        <Text style={styles.tapHint}>Details</Text>
-                        <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
-                    </View>
-                </TouchableOpacity>
-            </LinearGradient>
 
-            {/* Expanded Status Modal */}
+                        {/* User Status Trigger */}
+                        <TouchableOpacity
+                            style={[styles.userStatusButton, { borderColor: currentUser.color }]}
+                            onPress={() => setIsStatusModalVisible(true)}
+                        >
+                            <Text style={styles.userStatusEmoji}>{currentUser.emoji}</Text>
+                            <View style={[styles.activeDot, { backgroundColor: currentUser.color }]} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* AI Briefing */}
+                    <View style={styles.briefingContainer}>
+                        <Feather name="cpu" size={14} color={COLORS.primary} style={{ marginTop: 2 }} />
+                        <Text style={styles.briefingText}>
+                            {DAILY_BRIEFING}
+                        </Text>
+                    </View>
+
+                    {/* Divider */}
+                    <View style={styles.divider} />
+
+                    {/* House Health Entry Point */}
+                    <TouchableOpacity
+                        style={styles.healthCard}
+                        onPress={() => navigation.navigate('HousePulse' as never)}
+                        activeOpacity={0.8}
+                    >
+                        <View style={styles.healthLeft}>
+                            <View style={styles.healthIconContainer}>
+                                <Feather name="activity" size={20} color={COLORS.success} />
+                            </View>
+                            <View>
+                                <Text style={styles.healthLabel}>HOUSE HEALTH</Text>
+                                <Text style={[styles.healthValue, { color: COLORS.success }]}>72% - Sparkling ✨</Text>
+                            </View>
+                        </View>
+                        <View style={styles.healthRight}>
+                            <Text style={styles.tapHint}>Details</Text>
+                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
+                        </View>
+                    </TouchableOpacity>
+                </LinearGradient>
+            </Animated.View>
+
+            {/* Status Modal */}
             <Modal
                 visible={isStatusModalVisible}
                 transparent
@@ -129,13 +275,13 @@ export const HouseStatus = () => {
                         {/* Roommates List */}
                         <Text style={styles.sectionTitle}>Roommates</Text>
                         <View style={styles.roommatesList}>
-                            {MEMBERS.filter(m => m.id !== currentUser.id).map((member) => (
+                            {members.filter(m => m.id !== currentUser.id).map((member) => (
                                 <View key={member.id} style={styles.roommateRow}>
                                     <View style={styles.roommateInfo}>
-                                        <Avatar name={member.name} color={member.color} size="sm" />
+                                        <Avatar name={member.name} color={member.avatarColor || '#818CF8'} size="sm" />
                                         <Text style={styles.roommateName}>{member.name}</Text>
                                     </View>
-                                    <Text style={styles.roommateEmoji}>{member.emoji}</Text>
+                                    <Text style={styles.roommateEmoji}>{member.statusEmoji || '👀'}</Text>
                                 </View>
                             ))}
                         </View>
@@ -151,6 +297,39 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.xl,
         paddingHorizontal: SPACING.lg,
         paddingTop: SPACING.md,
+        position: 'relative',
+    },
+    // Quote box (fixed on RIGHT side, reveals as card slides left)
+    quoteBox: {
+        position: 'absolute',
+        top: SPACING.md,
+        right: SPACING.lg,
+        width: QUOTE_BOX_WIDTH,
+        bottom: 0,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.md,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    quoteEmoji: {
+        fontSize: 28,
+        marginBottom: SPACING.sm,
+    },
+    quoteText: {
+        fontSize: FONT_SIZE.xs,
+        fontWeight: '500',
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        fontStyle: 'italic',
+        lineHeight: 16,
+    },
+    // Card wrapper (animated)
+    cardWrapper: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
     },
     card: {
         borderRadius: BORDER_RADIUS.xl,
