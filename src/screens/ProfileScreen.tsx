@@ -6,13 +6,16 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
+  Pressable,
   StatusBar,
   Alert,
+  Platform,
   Modal,
   TextInput,
+  Linking,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Card, Avatar, HouseholdSettings } from '../components';
+import { Card, Avatar, HouseholdSettings, LinkAccountModal } from '../components';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
@@ -61,11 +64,12 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
 );
 
 export const ProfileScreen: React.FC = () => {
-  const { user, logout, updateProfile } = useAuthStore();
+  const { user, signOut, updateProfile, deleteAccount } = useAuthStore();
   const { household, leaveHousehold } = useHouseholdStore();
   const { getLeaderboard } = useChoreStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>('personal');
   const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
+  const [isLinkModalVisible, setIsLinkModalVisible] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('');
@@ -79,36 +83,53 @@ export const ProfileScreen: React.FC = () => {
   const myBonusChores = myStats?.bonusChores || 0;
 
   const handleLogout = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: () => {
-            leaveHousehold();
-            logout();
-          }
-        },
-      ]
-    );
+    // Check if anonymous (no email implies anonymous in our system logic so far)
+    if (!user.email) {
+      setIsLinkModalVisible(true);
+      return;
+    }
+
+    // Standard logout
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        signOut();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Log Out',
+            style: 'destructive',
+            onPress: () => signOut() // ONLY signOut, do not leave household
+          },
+        ]
+      );
+    }
   };
 
   const handleLeaveHousehold = () => {
-    Alert.alert(
-      'Leave Household',
-      'Are you sure you want to leave this household? You can rejoin with the invite code.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Leave',
-          style: 'destructive',
-          onPress: () => leaveHousehold()
-        },
-      ]
-    );
+    // Use window.confirm on web, Alert.alert on native
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to leave this household? You can rejoin with the invite code.')) {
+        leaveHousehold(user.id);
+      }
+    } else {
+      Alert.alert(
+        'Leave Household',
+        'Are you sure you want to leave this household? You can rejoin with the invite code.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Leave',
+            style: 'destructive',
+            onPress: () => leaveHousehold(user.id)
+          },
+        ]
+      );
+    }
   };
 
   const openEditProfile = () => {
@@ -122,7 +143,6 @@ export const ProfileScreen: React.FC = () => {
     if (editName.trim()) {
       updateProfile({
         name: editName.trim(),
-        email: editEmail.trim(),
         avatarColor: editAvatarColor,
       });
     }
@@ -221,19 +241,40 @@ export const ProfileScreen: React.FC = () => {
                 <SettingsItem
                   icon="bell"
                   label="Notifications"
-                  onPress={() => { }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      window.alert('Push notification settings will be available soon!');
+                    } else {
+                      Alert.alert('Notifications', 'Push notification settings will be available soon!', [{ text: 'OK' }]);
+                    }
+                  }}
                 />
                 <View style={styles.divider} />
                 <SettingsItem
                   icon="moon"
                   label="Dark Mode"
-                  value="Coming soon"
+                  value="Always On"
                 />
                 <View style={styles.divider} />
                 <SettingsItem
                   icon="help-circle"
                   label="Help & Support"
-                  onPress={() => { }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      if (window.confirm('Need help with CribUp?\\n\\nContact: support@cribup.app\\n\\nClick OK to send an email.')) {
+                        window.open('mailto:support@cribup.app?subject=CribUp%20Support', '_blank');
+                      }
+                    } else {
+                      Alert.alert(
+                        'Help & Support',
+                        'Need help with CribUp?\n\n📧 Contact: support@cribup.app\n\n💡 Found a bug? Use the in-app feedback option.',
+                        [
+                          { text: 'Close' },
+                          { text: 'Send Email', onPress: () => Linking.openURL('mailto:support@cribup.app?subject=CribUp%20Support') }
+                        ]
+                      );
+                    }
+                  }}
                 />
               </Card>
             </View>
@@ -261,7 +302,22 @@ export const ProfileScreen: React.FC = () => {
               </Card>
             </View>
 
-            <Text style={styles.version}>Roommate App v1.0.0</Text>
+            {/* Developer Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Developer</Text>
+              <Card padding="none">
+                <SettingsItem
+                  icon="play"
+                  label="Replay Onboarding"
+                  onPress={() => {
+                    // Clear household to trigger onboarding
+                    useHouseholdStore.getState().clearHousehold();
+                  }}
+                />
+              </Card>
+            </View>
+
+            <Text style={styles.version}>CribUp v1.0.0 (Dev)</Text>
 
             <View style={styles.bottomSpacer} />
           </ScrollView>
@@ -291,12 +347,14 @@ export const ProfileScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setIsEditProfileVisible(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalOverlay}
-          activeOpacity={1}
           onPress={() => setIsEditProfileVisible(false)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+          <Pressable
+            style={styles.modalContent}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit Profile</Text>
               <TouchableOpacity onPress={() => setIsEditProfileVisible(false)}>
@@ -341,26 +399,35 @@ export const ProfileScreen: React.FC = () => {
               />
             </View>
 
-            {/* Email Input */}
+            {/* Email Display (read-only) */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={editEmail}
-                onChangeText={setEditEmail}
-                placeholder="your@email.com"
-                placeholderTextColor={COLORS.textSecondary}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              <View style={[styles.input, styles.inputDisabled]}>
+                <Text style={styles.inputDisabledText}>{user.email}</Text>
+              </View>
             </View>
 
             <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
               <Text style={styles.saveButtonText}>Save Changes</Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
+
+      <LinkAccountModal
+        visible={isLinkModalVisible}
+        onClose={() => setIsLinkModalVisible(false)}
+        onSuccess={() => {
+          // User linked account successfully. 
+          // We can show a toast or just close.
+          // They are now permanent, so next logout will be standard.
+          setIsLinkModalVisible(false);
+        }}
+        onDelete={async () => {
+          await deleteAccount();
+          setIsLinkModalVisible(false);
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -635,6 +702,13 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.md,
     borderWidth: 1,
     borderColor: COLORS.gray700,
+  },
+  inputDisabled: {
+    opacity: 0.6,
+  },
+  inputDisabledText: {
+    color: COLORS.textSecondary,
+    fontSize: FONT_SIZE.md,
   },
   saveButton: {
     backgroundColor: COLORS.primary,

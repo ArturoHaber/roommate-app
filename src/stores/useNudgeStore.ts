@@ -6,9 +6,9 @@ import { generateId } from '../utils/generateId';
 
 interface NudgeState {
   nudges: Nudge[];
-  
+
   // Actions
-  sendNudge: (nudge: Omit<Nudge, 'id' | 'createdAt' | 'read'>) => void;
+  sendNudge: (nudge: Omit<Nudge, 'id' | 'createdAt' | 'isRead'>) => void;
   markAsRead: (nudgeId: string) => void;
   getMyNudges: (userId: string) => Nudge[];
   getUnreadCount: (userId: string) => number;
@@ -54,7 +54,7 @@ export const useNudgeStore = create<NudgeState>()(
           ...nudgeData,
           id: generateId(),
           createdAt: new Date(),
-          read: false,
+          isRead: false,
         };
         set((state) => ({ nudges: [nudge, ...state.nudges] }));
       },
@@ -62,7 +62,7 @@ export const useNudgeStore = create<NudgeState>()(
       markAsRead: (nudgeId: string) => {
         set((state) => ({
           nudges: state.nudges.map((n) =>
-            n.id === nudgeId ? { ...n, read: true } : n
+            n.id === nudgeId ? { ...n, isRead: true } : n
           ),
         }));
       },
@@ -77,7 +77,7 @@ export const useNudgeStore = create<NudgeState>()(
       getUnreadCount: (userId: string) => {
         const { nudges } = get();
         return nudges.filter(
-          (n) => (n.targetUserId === userId || n.targetUserId === null) && !n.read
+          (n) => (n.targetUserId === userId || n.targetUserId === null) && !n.isRead
         ).length;
       },
 

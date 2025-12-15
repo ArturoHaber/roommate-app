@@ -240,7 +240,7 @@ const RoomDetailModal = ({
                         <View style={styles.modalStatItem}>
                             <Text style={styles.modalStatLabel}>Cleaned By</Text>
                             <View style={styles.modalStatRow}>
-                                <Avatar name={room.lastCleanedBy} size="xs" />
+                                <Avatar name={room.lastCleanedBy} size="sm" color={COLORS.primary} />
                                 <Text style={styles.modalStatValue}>{room.lastCleanedBy}</Text>
                             </View>
                         </View>
@@ -802,8 +802,8 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: COLORS.gray900,
-        borderTopLeftRadius: BORDER_RADIUS.xxl,
-        borderTopRightRadius: BORDER_RADIUS.xxl,
+        borderTopLeftRadius: BORDER_RADIUS.xl,
+        borderTopRightRadius: BORDER_RADIUS.xl,
         padding: SPACING.xl,
         paddingBottom: 40,
     },

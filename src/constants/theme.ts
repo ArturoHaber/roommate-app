@@ -130,11 +130,12 @@ export const SHADOWS = {
 };
 
 export const GRADIENTS = {
-  primary: ['#6366F1', '#8B5CF6'],
-  success: ['#10B981', '#34D399'],
-  sunset: ['#F43F5E', '#F59E0B'],
-  ocean: ['#06B6D4', '#3B82F6'],
-  card: ['#1E293B', '#0F172A'], // Dark gradient for cards
-  glass: ['rgba(30, 41, 59, 0.7)', 'rgba(15, 23, 42, 0.6)'], // Dark glass
-  glow: ['rgba(99, 102, 241, 0.3)', 'transparent'],
+  primary: ['#6366F1', '#8B5CF6'] as const,
+  success: ['#10B981', '#34D399'] as const,
+  sunset: ['#F43F5E', '#F59E0B'] as const,
+  ocean: ['#06B6D4', '#3B82F6'] as const,
+  card: ['#1E293B', '#0F172A'] as const,
+  glass: ['rgba(30, 41, 59, 0.7)', 'rgba(15, 23, 42, 0.6)'] as const,
+  glow: ['rgba(99, 102, 241, 0.3)', 'transparent'] as const,
 };
+

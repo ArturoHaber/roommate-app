@@ -1,26 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Modal } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { useChoreStore } from '../stores/useChoreStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
 
 type ViewType = 'Month' | 'Week' | 'Day';
-
-// Mock Data
-const MOCK_CHORES = {
-    '2025-12-06': [{ id: '1', title: 'Dishes', user: 'Alex', color: '#818CF8' }],
-    '2025-12-07': [{ id: '2', title: 'Vacuum', user: 'Sam', color: '#FB7185' }],
-    '2025-12-08': [{ id: '3', title: 'Trash', user: 'Jordan', color: '#34D399' }],
-    '2025-12-10': [{ id: '4', title: 'Mop', user: 'Alex', color: '#818CF8' }],
-};
 
 export const ChoresCalendarScreen = () => {
     const navigation = useNavigation();
     const [viewType, setViewType] = useState<ViewType>('Month');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedChore, setSelectedChore] = useState<any>(null);
+
+    const { assignments, chores } = useChoreStore();
+    const { members } = useHouseholdStore();
+
+    // Transform assignments to calendar data
+    const choresByDate = useMemo(() => {
+        const map: Record<string, { id: string; title: string; user: string; color: string }[]> = {};
+
+        assignments.forEach(assignment => {
+            const chore = chores.find(c => c.id === assignment.choreId);
+            const member = members.find(m => m.id === assignment.assignedTo);
+            if (!chore) return;
+
+            const dateStr = format(new Date(assignment.dueDate), 'yyyy-MM-dd');
+            if (!map[dateStr]) map[dateStr] = [];
+
+            map[dateStr].push({
+                id: assignment.id,
+                title: chore.name,
+                user: member?.name || 'Unknown',
+                color: member?.avatarColor || '#818CF8',
+            });
+        });
+
+        return map;
+    }, [assignments, chores, members]);
 
     const renderHeader = () => (
         <View style={styles.header}>
@@ -66,13 +86,14 @@ export const ChoresCalendarScreen = () => {
             markingType={'custom'}
             markedDates={{
                 [selectedDate]: { selected: true, disableTouchEvent: true, selectedDotColor: 'orange' },
-                ...Object.keys(MOCK_CHORES).reduce((acc, date) => {
+                ...Object.keys(choresByDate).reduce((acc, date) => {
+                    const firstChore = choresByDate[date][0];
                     acc[date] = {
                         customStyles: {
                             container: {
-                                backgroundColor: MOCK_CHORES[date as keyof typeof MOCK_CHORES][0].color + '20',
+                                backgroundColor: firstChore.color + '20',
                                 borderWidth: 1,
-                                borderColor: MOCK_CHORES[date as keyof typeof MOCK_CHORES][0].color,
+                                borderColor: firstChore.color,
                             },
                             text: {
                                 color: COLORS.textPrimary,
@@ -86,7 +107,7 @@ export const ChoresCalendarScreen = () => {
     );
 
     const renderDayView = () => {
-        const chores = MOCK_CHORES[selectedDate as keyof typeof MOCK_CHORES] || [];
+        const chores = choresByDate[selectedDate] || [];
 
         return (
             <ScrollView style={styles.dayViewContainer}>
@@ -123,7 +144,7 @@ export const ChoresCalendarScreen = () => {
         const weekDays = Array.from({ length: 7 }).map((_, i) => {
             const date = addDays(start, i);
             const dateStr = date.toISOString().split('T')[0];
-            const chores = MOCK_CHORES[dateStr as keyof typeof MOCK_CHORES] || [];
+            const chores = choresByDate[dateStr] || [];
 
             return { date, dateStr, chores };
         });

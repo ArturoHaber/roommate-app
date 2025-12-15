@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { format, isToday, isTomorrow, isPast, addDays } from 'date-fns';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
-import { Avatar, CookingModal, ActivityDetailModal, ActivityItem } from '../components';
+import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData } from '../components';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
@@ -29,6 +29,7 @@ export const HouseholdScreen = () => {
     const { members, household } = useHouseholdStore();
     const { nudges, sendNudge } = useNudgeStore();
 
+    const [completeSheetVisible, setCompleteSheetVisible] = useState(false);
     const [quickLogVisible, setQuickLogVisible] = useState(false);
     const [nudgeVisible, setNudgeVisible] = useState(false);
     const [isCookingVisible, setIsCookingVisible] = useState(false);
@@ -36,6 +37,7 @@ export const HouseholdScreen = () => {
     const [activityExpanded, setActivityExpanded] = useState(false);
     const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
     const [selectedRoommate, setSelectedRoommate] = useState<typeof members[0] | null>(null);
+    const [selectedTask, setSelectedTask] = useState<TaskDisplayData | null>(null);
 
     // Initialize data on mount if needed
     useEffect(() => {
@@ -80,6 +82,18 @@ export const HouseholdScreen = () => {
         })
         .sort((a, b) => (a.urgent === b.urgent ? 0 : a.urgent ? -1 : 1))
         .slice(0, 5);
+
+    // Convert myAssignments to TaskDisplayData format
+    const displayTasks: TaskDisplayData[] = myAssignments.map(a => ({
+        id: a.id,
+        choreId: a.choreId,
+        name: a.name,
+        icon: a.icon,
+        dueText: a.due,
+        room: a.room,
+        isUrgent: a.urgent,
+        points: a.points,
+    }));
 
     // Get leaderboard for fairness bars
     const leaderboard = getLeaderboard();
@@ -157,7 +171,6 @@ export const HouseholdScreen = () => {
 
         sendNudge({
             householdId: household.id,
-            type: 'gentle',
             tone: 'polite',
             message: `Hey! Quick reminder about ${choreName} 👋`,
             targetUserId: selectedRoommate.id,
@@ -222,7 +235,7 @@ export const HouseholdScreen = () => {
                 <View style={styles.actionBar}>
                     <TouchableOpacity
                         style={styles.actionCard}
-                        onPress={() => setQuickLogVisible(true)}
+                        onPress={() => setCompleteSheetVisible(true)}
                         activeOpacity={0.7}
                     >
                         <View style={styles.actionCardInner}>
@@ -237,7 +250,7 @@ export const HouseholdScreen = () => {
 
                     <TouchableOpacity
                         style={styles.actionCard}
-                        onPress={() => setIsCookingVisible(true)}
+                        onPress={() => setQuickLogVisible(true)}
                         activeOpacity={0.7}
                     >
                         <View style={styles.actionCardInner}>
@@ -268,44 +281,31 @@ export const HouseholdScreen = () => {
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Your Turn</Text>
-                        <Text style={styles.sectionCount}>{myAssignments.length} tasks</Text>
+                        <Text style={styles.sectionCount}>{displayTasks.length} tasks</Text>
                     </View>
 
-                    {myAssignments.length > 0 ? (
-                        <View style={styles.choreList}>
-                            {myAssignments.map((chore) => (
-                                <View key={chore.id} style={[styles.choreCard, chore.urgent && styles.choreCardUrgent]}>
-                                    <View style={styles.choreLeft}>
-                                        <View style={[styles.choreIcon, chore.urgent && styles.choreIconUrgent]}>
-                                            <Feather
-                                                name={chore.icon as any}
-                                                size={18}
-                                                color={chore.urgent ? COLORS.error : COLORS.textSecondary}
-                                            />
-                                        </View>
-                                        <View>
-                                            <Text style={styles.choreName}>{chore.name}</Text>
-                                            <Text style={[styles.choreDue, chore.urgent && styles.choreDueUrgent]}>
-                                                {chore.due} • {chore.room}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <TouchableOpacity
-                                        style={styles.doneButton}
-                                        onPress={() => handleMarkDone(chore.id, chore.name, chore.points)}
-                                    >
-                                        <Feather name="check" size={18} color={COLORS.success} />
-                                    </TouchableOpacity>
-                                </View>
-                            ))}
-                        </View>
-                    ) : (
-                        <View style={styles.emptyState}>
-                            <Text style={styles.emptyEmoji}>🎉</Text>
-                            <Text style={styles.emptyText}>All caught up!</Text>
-                            <Text style={styles.emptySubtext}>No chores assigned to you right now</Text>
-                        </View>
-                    )}
+                    <View style={styles.yourTurnContainer}>
+                        {displayTasks.length > 0 ? (
+                            <View style={styles.choreList}>
+                                {displayTasks.map((task) => (
+                                    <UnifiedTaskCard
+                                        key={task.id}
+                                        task={task}
+                                        variant="compact"
+                                        onPress={() => setSelectedTask(task)}
+                                        onComplete={() => handleMarkDone(task.id, task.name, task.points)}
+                                        showCompleteButton={true}
+                                    />
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.emptyState}>
+                                <Text style={styles.emptyEmoji}>🎉</Text>
+                                <Text style={styles.emptyText}>All caught up!</Text>
+                                <Text style={styles.emptySubtext}>No chores assigned to you right now</Text>
+                            </View>
+                        )}
+                    </View>
                 </View>
 
                 {/* Activity Feed */}
@@ -390,37 +390,11 @@ export const HouseholdScreen = () => {
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            {/* Quick Log Modal */}
-            <Modal
+            {/* Quick Log Sheet */}
+            <LogSheet
                 visible={quickLogVisible}
-                animationType="slide"
-                presentationStyle="pageSheet"
-                onRequestClose={() => setQuickLogVisible(false)}
-            >
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>What did you do?</Text>
-                        <TouchableOpacity onPress={() => setQuickLogVisible(false)}>
-                            <Feather name="x" size={24} color={COLORS.textPrimary} />
-                        </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.quickGrid}>
-                        {chores.slice(0, 6).map((chore) => (
-                            <TouchableOpacity
-                                key={chore.id}
-                                style={styles.quickOption}
-                                onPress={() => handleQuickLog(chore.id, chore.name, chore.pointValue)}
-                            >
-                                <View style={styles.quickOptionIcon}>
-                                    <Feather name={chore.icon as any} size={24} color={COLORS.primary} />
-                                </View>
-                                <Text style={styles.quickOptionText}>{chore.name}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
-            </Modal>
+                onClose={() => setQuickLogVisible(false)}
+            />
 
             {/* Nudge Modal */}
             <Modal
@@ -481,81 +455,52 @@ export const HouseholdScreen = () => {
                 onSubmit={handleCookingSubmit}
             />
 
-            {/* Snitch Modal */}
-            <Modal
+            {/* Report Sheet (Snitch) */}
+            <ReportSheet
                 visible={snitchVisible}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setSnitchVisible(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHandle} />
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>👀 Report an Issue</Text>
-                            <TouchableOpacity onPress={() => setSnitchVisible(false)}>
-                                <Feather name="x" size={24} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.modalSubtitle}>What happened?</Text>
+                onClose={() => setSnitchVisible(false)}
+            />
 
-                        <TouchableOpacity
-                            style={styles.snitchOption}
-                            onPress={() => handleSnitchSubmit('dishes')}
-                        >
-                            <Text style={styles.snitchOptionEmoji}>🍽️</Text>
-                            <View style={styles.snitchOptionText}>
-                                <Text style={styles.snitchOptionTitle}>Dishes left in sink</Text>
-                                <Text style={styles.snitchOptionSubtitle}>Someone cooked and didn't log it</Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.snitchOption}
-                            onPress={() => handleSnitchSubmit('chore')}
-                        >
-                            <Text style={styles.snitchOptionEmoji}>❌</Text>
-                            <View style={styles.snitchOptionText}>
-                                <Text style={styles.snitchOptionTitle}>Chore not done</Text>
-                                <Text style={styles.snitchOptionSubtitle}>Marked done but wasn't actually</Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.snitchOption}
-                            onPress={() => handleSnitchSubmit('trash')}
-                        >
-                            <Text style={styles.snitchOptionEmoji}>🗑️</Text>
-                            <View style={styles.snitchOptionText}>
-                                <Text style={styles.snitchOptionTitle}>Trash overflowing</Text>
-                                <Text style={styles.snitchOptionSubtitle}>Someone needs to take it out</Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.snitchOption}
-                            onPress={() => handleSnitchSubmit('other')}
-                        >
-                            <Text style={styles.snitchOptionEmoji}>🤔</Text>
-                            <View style={styles.snitchOptionText}>
-                                <Text style={styles.snitchOptionTitle}>Something else</Text>
-                                <Text style={styles.snitchOptionSubtitle}>General issue with the house</Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+            {/* Complete Sheet */}
+            <CompleteSheet
+                visible={completeSheetVisible}
+                onClose={() => setCompleteSheetVisible(false)}
+            />
 
             {/* Activity Detail Modal */}
             <ActivityDetailModal
                 activity={selectedActivity}
                 onClose={() => setSelectedActivity(null)}
             />
-        </SafeAreaView>
+
+            {/* Task Detail Modal - Unified for all task cards */}
+            <TaskDetailModal
+                visible={selectedTask !== null}
+                onClose={() => setSelectedTask(null)}
+                task={selectedTask ? {
+                    id: selectedTask.choreId,
+                    name: selectedTask.name,
+                    description: '',
+                    icon: selectedTask.icon,
+                    pointValue: selectedTask.points,
+                    frequency: 'weekly',
+                    householdId: household?.id || '',
+                    createdAt: new Date(),
+                    room: selectedTask.room as any,
+                    isActive: true,
+                } : null}
+                currentUser={user!}
+                onEdit={() => { }}
+                onMarkDone={(task) => {
+                    if (selectedTask) {
+                        handleMarkDone(selectedTask.id, selectedTask.name, selectedTask.points);
+                        setSelectedTask(null);
+                    }
+                }}
+                onNudge={() => { }}
+                onSnitch={() => { }}
+            />
+        </SafeAreaView >
     );
 };
 
@@ -775,14 +720,19 @@ const styles = StyleSheet.create({
         color: COLORS.primary,
     },
 
-    // Empty States
-    emptyState: {
-        alignItems: 'center',
-        padding: SPACING.xl,
+    // Your Turn Container
+    yourTurnContainer: {
         backgroundColor: COLORS.gray900,
         borderRadius: BORDER_RADIUS.lg,
         borderWidth: 1,
         borderColor: COLORS.gray800,
+        overflow: 'hidden',
+    },
+
+    // Empty States
+    emptyState: {
+        alignItems: 'center',
+        padding: SPACING.xl,
     },
     emptyEmoji: {
         fontSize: 32,

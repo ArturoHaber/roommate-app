@@ -5,47 +5,29 @@ import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Avatar } from './Avatar';
 import { useNavigation } from '@react-navigation/native';
 
-// All posts combined for scrollable view
-const ALL_POSTS = [
-    // Pinned first
-    {
-        id: '1',
-        type: 'pinned',
-        content: 'WiFi Password: "superfast_408"',
-        author: { name: 'Admin', color: COLORS.primary },
-        time: '2h ago',
-        isPinned: true,
-    },
-    // Then recent posts
-    {
-        id: '2',
-        type: 'poll',
-        content: 'Dinner tonight? 🌮',
-        author: { name: 'Sam', color: '#34D399' },
-        time: '1h ago',
-        votes: 3,
-        isPinned: false,
-    },
-    {
-        id: '3',
-        type: 'note',
-        content: 'Package arriving tomorrow - can someone grab it?',
-        author: { name: 'Jordan', color: '#F472B6' },
-        time: '3h ago',
-        isPinned: false,
-    },
-    {
-        id: '4',
-        type: 'note',
-        content: 'Maintenance coming Monday 10am for AC check',
-        author: { name: 'Alex', color: '#818CF8' },
-        time: '5h ago',
-        isPinned: false,
-    },
-];
+// TODO: Connect to real message board store once migrated to Supabase
+// For now, show empty state
+const ALL_POSTS: any[] = [];
 
 export const MessageBoardWidget = () => {
     const navigation = useNavigation();
+
+    // Empty state when no posts
+    if (ALL_POSTS.length === 0) {
+        return (
+            <View style={styles.container}>
+                <TouchableOpacity
+                    style={styles.emptyCard}
+                    onPress={() => navigation.navigate('HouseBoard' as never)}
+                    activeOpacity={0.9}
+                >
+                    <Feather name="message-square" size={24} color={COLORS.gray500} />
+                    <Text style={styles.emptyTitle}>House Board</Text>
+                    <Text style={styles.emptySubtext}>Tap to view & post messages</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>
@@ -191,5 +173,26 @@ const styles = StyleSheet.create({
     },
     pinnedFooterText: {
         color: '#A5B4FC',
+    },
+    emptyCard: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.xl,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginHorizontal: SPACING.lg,
+        gap: SPACING.xs,
+    },
+    emptyTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginTop: SPACING.sm,
+    },
+    emptySubtext: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
     },
 });

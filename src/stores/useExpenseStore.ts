@@ -6,7 +6,7 @@ import { generateId } from '../utils/generateId';
 
 interface ExpenseState {
   expenses: Expense[];
-  
+
   // Actions
   addExpense: (expense: Omit<Expense, 'id' | 'createdAt'>) => void;
   removeExpense: (expenseId: string) => void;
@@ -96,7 +96,7 @@ export const useExpenseStore = create<ExpenseState>()(
       markSplitPaid: (expenseId: string, userId: string) => {
         set((state) => ({
           expenses: state.expenses.map((e) => {
-            if (e.id === expenseId) {
+            if (e.id === expenseId && e.splits) {
               return {
                 ...e,
                 splits: e.splits.map((s) =>
@@ -118,7 +118,7 @@ export const useExpenseStore = create<ExpenseState>()(
 
         // Calculate net balance for each person
         expenses.forEach((expense) => {
-          expense.splits.forEach((split) => {
+          expense.splits?.forEach((split) => {
             if (!split.paid && split.userId !== expense.paidBy) {
               // This person owes money to the payer
               const currentBalance = balances.get(split.userId) || 0;
@@ -165,7 +165,7 @@ export const useExpenseStore = create<ExpenseState>()(
       getMyExpenses: (userId: string) => {
         const { expenses } = get();
         return expenses.filter(
-          (e) => e.paidBy === userId || e.splits.some((s) => s.userId === userId)
+          (e) => e.paidBy === userId || e.splits?.some((s) => s.userId === userId)
         );
       },
 
@@ -174,7 +174,7 @@ export const useExpenseStore = create<ExpenseState>()(
         let total = 0;
         expenses.forEach((expense) => {
           if (expense.paidBy !== userId) {
-            const mySplit = expense.splits.find((s) => s.userId === userId);
+            const mySplit = expense.splits?.find((s) => s.userId === userId);
             if (mySplit && !mySplit.paid) {
               total += mySplit.amount;
             }
@@ -188,7 +188,7 @@ export const useExpenseStore = create<ExpenseState>()(
         let total = 0;
         expenses.forEach((expense) => {
           if (expense.paidBy === userId) {
-            expense.splits.forEach((split) => {
+            expense.splits?.forEach((split) => {
               if (split.userId !== userId && !split.paid) {
                 total += split.amount;
               }

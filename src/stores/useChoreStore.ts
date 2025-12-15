@@ -8,7 +8,7 @@ import { addDays, startOfWeek, isAfter, isBefore, isToday } from 'date-fns';
 interface ChoreState {
   chores: Chore[];
   assignments: ChoreAssignment[];
-  
+
   // Actions
   addChore: (chore: Omit<Chore, 'id' | 'createdAt'>) => void;
   removeChore: (choreId: string) => void;
@@ -19,17 +19,18 @@ interface ChoreState {
   getLeaderboard: () => LeaderboardEntry[];
   getChoreById: (choreId: string) => Chore | undefined;
   initializeDefaultChores: (householdId: string) => void;
+  logActivity: (category: string, details: string, userId: string) => void;
 }
 
 const DEFAULT_CHORES: Omit<Chore, 'id' | 'householdId' | 'createdAt'>[] = [
-  { name: 'Take out trash', description: 'Empty all bins and take to curb', icon: 'trash-2', frequency: 'weekly', pointValue: 3 },
-  { name: 'Do dishes', description: 'Wash dishes or load/unload dishwasher', icon: 'coffee', frequency: 'daily', pointValue: 2 },
-  { name: 'Clean bathroom', description: 'Scrub toilet, sink, and shower', icon: 'droplet', frequency: 'weekly', pointValue: 5 },
-  { name: 'Vacuum common areas', description: 'Vacuum living room and hallways', icon: 'wind', frequency: 'weekly', pointValue: 4 },
-  { name: 'Mop floors', description: 'Mop kitchen and bathroom floors', icon: 'home', frequency: 'biweekly', pointValue: 4 },
-  { name: 'Wipe counters', description: 'Clean kitchen counters and stovetop', icon: 'layout', frequency: 'daily', pointValue: 2 },
-  { name: 'Buy supplies', description: 'Restock toilet paper, soap, etc.', icon: 'shopping-bag', frequency: 'monthly', pointValue: 3 },
-  { name: 'Take out recycling', description: 'Sort and take out recyclables', icon: 'refresh-cw', frequency: 'weekly', pointValue: 2 },
+  { name: 'Take out trash', description: 'Empty all bins and take to curb', icon: 'trash-2', frequency: 'weekly', pointValue: 3, room: 'other', isActive: true },
+  { name: 'Do dishes', description: 'Wash dishes or load/unload dishwasher', icon: 'coffee', frequency: 'daily', pointValue: 2, room: 'kitchen', isActive: true },
+  { name: 'Clean bathroom', description: 'Scrub toilet, sink, and shower', icon: 'droplet', frequency: 'weekly', pointValue: 5, room: 'bathroom', isActive: true },
+  { name: 'Vacuum common areas', description: 'Vacuum living room and hallways', icon: 'wind', frequency: 'weekly', pointValue: 4, room: 'living_room', isActive: true },
+  { name: 'Mop floors', description: 'Mop kitchen and bathroom floors', icon: 'home', frequency: 'weekly', pointValue: 4, room: 'kitchen', isActive: true },
+  { name: 'Wipe counters', description: 'Clean kitchen counters and stovetop', icon: 'layout', frequency: 'daily', pointValue: 2, room: 'kitchen', isActive: true },
+  { name: 'Buy supplies', description: 'Restock toilet paper, soap, etc.', icon: 'shopping-bag', frequency: 'weekly', pointValue: 3, room: 'bathroom', isActive: true },
+  { name: 'Take out recycling', description: 'Sort and take out recyclables', icon: 'refresh-cw', frequency: 'weekly', pointValue: 2, room: 'other', isActive: true },
 ];
 
 export const useChoreStore = create<ChoreState>()(
@@ -42,12 +43,24 @@ export const useChoreStore = create<ChoreState>()(
         const existingChores = get().chores;
         if (existingChores.length > 0) return;
 
-        const chores: Chore[] = DEFAULT_CHORES.map((chore) => ({
+        // Add "Cook Dinner" to defaults if not present
+        const cookChore: Omit<Chore, 'id' | 'householdId' | 'createdAt'> = {
+          name: 'Cook Dinner',
+          description: 'Prepare a meal for the house',
+          icon: 'coffee',
+          frequency: 'daily',
+          pointValue: 5,
+          room: 'kitchen',
+          isActive: true
+        };
+        const allDefaults = [...DEFAULT_CHORES, cookChore];
+
+        const chores: Chore[] = allDefaults.map((chore) => ({
           ...chore,
           id: generateId(),
           householdId,
           createdAt: new Date(),
-        }));
+        }) as Chore);
         set({ chores });
       },
 
@@ -86,7 +99,7 @@ export const useChoreStore = create<ChoreState>()(
       generateWeeklyAssignments: (memberIds: string[]) => {
         const { chores, assignments } = get();
         const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-        
+
         // Check if we already have assignments for this week
         const hasThisWeek = assignments.some(
           (a) => isAfter(new Date(a.dueDate), weekStart)
@@ -94,35 +107,59 @@ export const useChoreStore = create<ChoreState>()(
         if (hasThisWeek) return;
 
         const newAssignments: ChoreAssignment[] = [];
-        let memberIndex = 0;
 
-        // Weekly chores
+        // Helper: Find who did this chore last to determine next in line
+        const getNextRotationalAssignee = (choreId: string, offset: number = 0): string => {
+          if (memberIds.length === 0) return '';
+
+          // Find the most recent assignment for this chore
+          const history = assignments
+            .filter(a => a.choreId === choreId && a.completedAt)
+            .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+
+          let lastByIndex = 0;
+          if (history.length > 0) {
+            const lastUserId = history[0].completedBy || history[0].assignedTo;
+            lastByIndex = memberIds.indexOf(lastUserId);
+            if (lastByIndex === -1) lastByIndex = 0; // User might have left
+          }
+
+          // Rotate: Last + 1 + offset (for daily rotations)
+          const nextIndex = (lastByIndex + 1 + offset) % memberIds.length;
+          return memberIds[nextIndex];
+        };
+
+        // Weekly chores - Rotate based on history
         const weeklyChores = chores.filter((c) => c.frequency === 'weekly');
         weeklyChores.forEach((chore) => {
           newAssignments.push({
             id: generateId(),
             choreId: chore.id,
-            assignedTo: memberIds[memberIndex % memberIds.length],
+            assignedTo: getNextRotationalAssignee(chore.id),
             dueDate: addDays(weekStart, 6), // End of week
             completedAt: null,
             completedBy: null,
             isBonus: false,
+            createdAt: new Date(),
           });
-          memberIndex++;
         });
 
-        // Daily chores - rotate through the week
+        // Daily chores - Rotate day by day
         const dailyChores = chores.filter((c) => c.frequency === 'daily');
+        // Filter out "Cook Dinner" from auto-assignment if it should be ad-hoc
+        const rotationalDailyChores = dailyChores.filter(c => c.name !== 'Cook Dinner');
+
         for (let day = 0; day < 7; day++) {
-          dailyChores.forEach((chore) => {
+          rotationalDailyChores.forEach((chore) => {
             newAssignments.push({
               id: generateId(),
               choreId: chore.id,
-              assignedTo: memberIds[(memberIndex + day) % memberIds.length],
+              assignedTo: getNextRotationalAssignee(chore.id, day),
               dueDate: addDays(weekStart, day),
               completedAt: null,
               completedBy: null,
               isBonus: false,
+              createdAt: new Date(),
             });
           });
         }
@@ -132,13 +169,46 @@ export const useChoreStore = create<ChoreState>()(
         }));
       },
 
+      logActivity: (category: string, details: string, userId: string) => {
+        // 1. Create a "Consequence" assignment if Cooked
+        if (category === 'cooked') {
+          const { chores } = get();
+          // Find or create 'Clean Kitchen' chore
+          let cleanChore = chores.find(c => c.name === 'Clean Kitchen');
+
+          if (!cleanChore) {
+            // If it doesn't exist, use "Wipe counters" or create ad-hoc
+            cleanChore = chores.find(c => c.name === 'Wipe counters');
+          }
+
+          if (cleanChore) {
+            const consequenceAssignment: ChoreAssignment = {
+              id: generateId(),
+              choreId: cleanChore.id,
+              assignedTo: userId, // Assigned to self
+              dueDate: new Date(), // Due today
+              completedAt: null,
+              completedBy: null,
+              isBonus: false,
+              createdAt: new Date(),
+            };
+
+            set(state => ({
+              assignments: [...state.assignments, consequenceAssignment]
+            }));
+          }
+        }
+
+        // Note: In a real app we'd also add to an 'activityFeed' array here
+      },
+
       getMyAssignments: (userId: string) => {
         const { assignments } = get();
         const now = new Date();
         return assignments.filter(
-          (a) => a.assignedTo === userId && 
-                 !a.completedAt && 
-                 (isToday(new Date(a.dueDate)) || isAfter(new Date(a.dueDate), now))
+          (a) => a.assignedTo === userId &&
+            !a.completedAt &&
+            (isToday(new Date(a.dueDate)) || isAfter(new Date(a.dueDate), now))
         );
       },
 
@@ -146,10 +216,10 @@ export const useChoreStore = create<ChoreState>()(
         const { assignments } = get();
         const now = new Date();
         return assignments.filter(
-          (a) => a.assignedTo === userId && 
-                 !a.completedAt && 
-                 isBefore(new Date(a.dueDate), now) &&
-                 !isToday(new Date(a.dueDate))
+          (a) => a.assignedTo === userId &&
+            !a.completedAt &&
+            isBefore(new Date(a.dueDate), now) &&
+            !isToday(new Date(a.dueDate))
         );
       },
 
@@ -159,7 +229,7 @@ export const useChoreStore = create<ChoreState>()(
 
         assignments.forEach((assignment) => {
           if (!assignment.completedBy) return;
-          
+
           const chore = chores.find((c) => c.id === assignment.choreId);
           if (!chore) return;
 

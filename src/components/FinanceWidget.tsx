@@ -22,7 +22,7 @@ export const FinanceWidget = () => {
 
     // Count pending transactions
     const pendingTransactions = expenses.filter(e =>
-        e.splits.some(s => !s.paid && s.userId !== e.paidBy)
+        e.splits?.some(s => !s.paid && s.userId !== e.paidBy) || false
     ).length;
 
     return (

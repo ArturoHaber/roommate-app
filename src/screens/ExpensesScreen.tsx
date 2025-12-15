@@ -44,18 +44,18 @@ export const ExpensesScreen = () => {
   const ledgerItems = expenses.slice(0, 5).map(expense => {
     const payer = members.find(m => m.id === expense.paidBy) ||
       (expense.paidBy === user.id ? { id: user.id, name: 'You', avatarColor: user.avatarColor } : null);
-    const mySplit = expense.splits.find(s => s.userId === user.id);
+    const mySplit = expense.splits?.find(s => s.userId === user.id);
     const iOwe = expense.paidBy !== user.id && mySplit && !mySplit.paid;
-    const theyOwe = expense.paidBy === user.id && expense.splits.some(s => s.userId !== user.id && !s.paid);
+    const theyOwe = expense.paidBy === user.id && expense.splits?.some(s => s.userId !== user.id && !s.paid);
 
     // Find who owes for display
-    const owingUsers = expense.splits.filter(s => s.userId !== expense.paidBy && !s.paid);
+    const owingUsers = expense.splits?.filter(s => s.userId !== expense.paidBy && !s.paid) || [];
 
     return {
       id: expense.id,
       payer,
       description: expense.description,
-      amount: iOwe ? mySplit.amount : (theyOwe ? expense.splits.filter(s => !s.paid && s.userId !== expense.paidBy).reduce((sum, s) => sum + s.amount, 0) : 0),
+      amount: iOwe && mySplit ? mySplit.amount : (theyOwe ? (expense.splits?.filter(s => !s.paid && s.userId !== expense.paidBy).reduce((sum, s) => sum + s.amount, 0) || 0) : 0),
       iOwe,
       theyOwe,
       category: expense.category,
@@ -170,7 +170,7 @@ export const ExpensesScreen = () => {
           <View style={styles.ledgerList}>
             {ledgerItems.map((item) => {
               const displayMember = item.iOwe ? item.payer :
-                members.find(m => expenses.find(e => e.id === item.id)?.splits.find(s => s.userId === m.id && !s.paid));
+                members.find(m => expenses.find(e => e.id === item.id)?.splits?.find(s => s.userId === m.id && !s.paid));
 
               return (
                 <View key={item.id} style={styles.ledgerRow}>

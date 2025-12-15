@@ -1,21 +1,15 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, PanResponder, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, PanResponder, Dimensions, Share } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar } from './Avatar';
+import { useAuthStore } from '../stores/useAuthStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_DRAG = 120; // Max drag distance
 const QUOTE_BOX_WIDTH = MAX_DRAG - 8; // Width of revealed quote area
-
-// Mock Data
-const MEMBERS = [
-    { id: 'u1', name: 'Alex', color: '#818CF8', emoji: '😴', status: 'Sleeping' },
-    { id: 'u2', name: 'Sam', color: '#34D399', emoji: '👨‍💻', status: 'Working' },
-    { id: 'u3', name: 'Jordan', color: '#F472B6', emoji: '🎮', status: 'Gaming' },
-    { id: 'u4', name: 'Casey', color: '#FBBF24', emoji: '🏃', status: 'Gym' },
-];
 
 const STATUS_EMOJIS = ['😴', '👨‍💻', '🎮', '🏃', '🤔', '👀', '🏠', '🍕', '🎉', '🧘', '🎧', '📚'];
 
@@ -44,9 +38,32 @@ import { useNavigation } from '@react-navigation/native';
 
 export const HouseStatus = () => {
     const navigation = useNavigation();
-    const [currentUser, setCurrentUser] = useState(MEMBERS[0]);
+
+    // Real data from stores
+    const { user, updateProfile } = useAuthStore();
+    const { members } = useHouseholdStore();
+
+    // Current user for display (authenticated user)
+    const currentUser = user ? {
+        id: user.id,
+        name: user.name,
+        color: user.avatarColor || '#818CF8',
+        emoji: user.statusEmoji || '👀',
+        status: user.statusText || 'Available',
+    } : { id: '', name: 'User', color: '#818CF8', emoji: '👀', status: 'Available' };
+
     const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
     const [currentWisdom, setCurrentWisdom] = useState(ROOMMATE_WISDOM[0]);
+
+    // Safe guard: If no household (e.g. anonymous user just authenticated but household creation lagging), return empty
+    // or a placeholder.
+    const { household } = useHouseholdStore(); // Need to get household to check
+
+    // If no household, we can't show status correctly yet. 
+    // Ideally the dashboard shouldn't render, but as a safeguard:
+    if (!members.length) {
+        return null;
+    }
 
     // Use ref for index since PanResponder doesn't see state updates
     const quoteIndexRef = useRef(0);
@@ -56,8 +73,8 @@ export const HouseStatus = () => {
     const translateX = useRef(new Animated.Value(0)).current;
     const scale = useRef(new Animated.Value(1)).current;
 
-    const handleStatusSelect = (emoji: string) => {
-        setCurrentUser({ ...currentUser, emoji });
+    const handleStatusSelect = async (emoji: string) => {
+        await updateProfile({ statusEmoji: emoji });
         setIsStatusModalVisible(false);
     };
 
@@ -130,9 +147,11 @@ export const HouseStatus = () => {
         })
     ).current;
 
+
+
     return (
         <View style={styles.container}>
-            {/* Easter egg quote box (revealed on right side) */}
+            {/* ... (keep existing quoteBox code) ... */}
             <View style={styles.quoteBox}>
                 <Text style={styles.quoteEmoji}>{currentWisdom.emoji}</Text>
                 <Text style={styles.quoteText} numberOfLines={4}>{currentWisdom.text}</Text>
@@ -159,9 +178,16 @@ export const HouseStatus = () => {
                 >
                     {/* Header Section */}
                     <View style={styles.header}>
-                        <View>
-                            <Text style={styles.greeting}>Good Morning, {currentUser.name}</Text>
-                            <Text style={styles.houseName}>The Loft 408</Text>
+                        <View style={{ flex: 1, marginRight: SPACING.md }}>
+                            <Text
+                                style={styles.greeting}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                            >
+                                Good Morning, {currentUser.name}
+                            </Text>
+                            <Text style={styles.houseName}>{household?.name || 'My Household'}</Text>
                         </View>
 
                         {/* User Status Trigger */}
@@ -249,13 +275,13 @@ export const HouseStatus = () => {
                         {/* Roommates List */}
                         <Text style={styles.sectionTitle}>Roommates</Text>
                         <View style={styles.roommatesList}>
-                            {MEMBERS.filter(m => m.id !== currentUser.id).map((member) => (
+                            {members.filter(m => m.id !== currentUser.id).map((member) => (
                                 <View key={member.id} style={styles.roommateRow}>
                                     <View style={styles.roommateInfo}>
-                                        <Avatar name={member.name} color={member.color} size="sm" />
+                                        <Avatar name={member.name} color={member.avatarColor || '#818CF8'} size="sm" />
                                         <Text style={styles.roommateName}>{member.name}</Text>
                                     </View>
-                                    <Text style={styles.roommateEmoji}>{member.emoji}</Text>
+                                    <Text style={styles.roommateEmoji}>{member.statusEmoji || '👀'}</Text>
                                 </View>
                             ))}
                         </View>

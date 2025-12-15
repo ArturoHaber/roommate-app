@@ -21,56 +21,8 @@ interface Post {
     isPinned?: boolean;
 }
 
-// --- Mock Data ---
-const MOCK_POSTS: Post[] = [
-    {
-        id: '1',
-        type: 'announcement',
-        author: { name: 'Admin', color: COLORS.primary },
-        content: 'WiFi Password: "superfast_408" 📶',
-        createdAt: '2h ago',
-        reactions: [],
-        isPinned: true,
-    },
-    {
-        id: '2',
-        type: 'announcement',
-        author: { name: 'Landlord', color: COLORS.error },
-        content: 'Inspection on Tuesday at 10AM. Please clear the hallway.',
-        createdAt: '1d ago',
-        reactions: [{ emoji: '👀', count: 3 }],
-        isPinned: true,
-    },
-    {
-        id: '3',
-        type: 'poll',
-        author: { name: 'Sam', color: '#34D399' },
-        content: 'Dinner tonight? 🌮',
-        createdAt: '15m ago',
-        reactions: [],
-        pollOptions: [
-            { id: 'opt1', text: 'Tacos', votes: 2 },
-            { id: 'opt2', text: 'Pizza', votes: 1 },
-            { id: 'opt3', text: 'Cook @ Home', votes: 0 },
-        ]
-    },
-    {
-        id: '4',
-        type: 'note',
-        author: { name: 'Casey', color: '#FBBF24' },
-        content: 'Left some lasagna in the fridge. Help yourselves! 🍝',
-        createdAt: '5m ago',
-        reactions: [{ emoji: '🔥', count: 1 }, { emoji: '😋', count: 2 }],
-    },
-    {
-        id: '5',
-        type: 'note',
-        author: { name: 'You', color: '#818CF8' },
-        content: 'Has anyone seen my blue hoodie?',
-        createdAt: 'Just now',
-        reactions: [],
-    },
-];
+// --- Mock Data - TODO: Replace with real data from Supabase ---
+const MOCK_POSTS: Post[] = [];
 
 export const HouseBoardScreen = () => {
     const navigation = useNavigation();
@@ -79,8 +31,73 @@ export const HouseBoardScreen = () => {
     const [newPostType, setNewPostType] = useState<PostType>('note');
     const [newPostContent, setNewPostContent] = useState('');
 
+    // Emoji reactions state
+    const [userReactions, setUserReactions] = useState<{ [postId: string]: string[] }>({});
+    const [emojiPickerPostId, setEmojiPickerPostId] = useState<string | null>(null);
+
+    const AVAILABLE_EMOJIS = ['👍', '❤️', '😂', '😍', '🔥', '🎉', '👀', '😋', '😢', '👏'];
+
     const pinnedPosts = posts.filter(p => p.isPinned);
     const feedPosts = posts.filter(p => !p.isPinned);
+
+    // Toggle a reaction on a post
+    const handleToggleReaction = (postId: string, emoji: string) => {
+        const currentUserReactions = userReactions[postId] || [];
+        const hasReacted = currentUserReactions.includes(emoji);
+
+        // Update user's reactions
+        setUserReactions(prev => ({
+            ...prev,
+            [postId]: hasReacted
+                ? currentUserReactions.filter(e => e !== emoji)
+                : [...currentUserReactions, emoji],
+        }));
+
+        // Update post reactions count
+        setPosts(prevPosts => prevPosts.map(post => {
+            if (post.id !== postId) return post;
+
+            const existingReaction = post.reactions.find(r => r.emoji === emoji);
+            let newReactions;
+
+            if (hasReacted) {
+                // Decrement or remove
+                if (existingReaction && existingReaction.count > 1) {
+                    newReactions = post.reactions.map(r =>
+                        r.emoji === emoji ? { ...r, count: r.count - 1 } : r
+                    );
+                } else {
+                    newReactions = post.reactions.filter(r => r.emoji !== emoji);
+                }
+            } else {
+                // Increment or add
+                if (existingReaction) {
+                    newReactions = post.reactions.map(r =>
+                        r.emoji === emoji ? { ...r, count: r.count + 1 } : r
+                    );
+                } else {
+                    newReactions = [...post.reactions, { emoji, count: 1 }];
+                }
+            }
+
+            return { ...post, reactions: newReactions };
+        }));
+    };
+
+    // Add a new reaction from picker
+    const handleAddReaction = (emoji: string) => {
+        if (emojiPickerPostId) {
+            handleToggleReaction(emojiPickerPostId, emoji);
+            setEmojiPickerPostId(null);
+        }
+    };
+
+    // Toggle pin status for a post
+    const handleTogglePin = (postId: string) => {
+        setPosts(prevPosts => prevPosts.map(post =>
+            post.id === postId ? { ...post, isPinned: !post.isPinned } : post
+        ));
+    };
 
     const handleVote = (postId: string, optionId: string) => {
         // Logic to update votes would go here
@@ -126,10 +143,19 @@ export const HouseBoardScreen = () => {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pinnedScroll}>
                             {pinnedPosts.map(post => (
                                 <View key={post.id} style={styles.pinnedCard}>
-                                    {/* Simple pinned label */}
-                                    <View style={styles.pinnedLabel}>
-                                        <MaterialCommunityIcons name="pin" size={16} color="#A5B4FC" />
-                                        <Text style={styles.pinnedLabelText}>Pinned</Text>
+                                    {/* Header with pinned label and unpin button */}
+                                    <View style={styles.pinnedCardHeader}>
+                                        <View style={styles.pinnedLabel}>
+                                            <MaterialCommunityIcons name="pin" size={16} color="#A5B4FC" />
+                                            <Text style={styles.pinnedLabelText}>Pinned</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.unpinButton}
+                                            onPress={() => handleTogglePin(post.id)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <MaterialCommunityIcons name="pin-off" size={16} color="#A5B4FC" />
+                                        </TouchableOpacity>
                                     </View>
                                     <Text style={styles.pinnedContent}>{post.content}</Text>
                                     <View style={styles.pinnedFooter}>
@@ -143,8 +169,20 @@ export const HouseBoardScreen = () => {
                 )}
 
                 {/* The Feed */}
-                <Text style={styles.sectionTitle}>Latest</Text>
-                <View style={styles.feed}>
+                <Text style={styles.sectionTitle}>Feed</Text>
+
+                {feedPosts.length === 0 && pinnedPosts.length === 0 && (
+                    <View style={styles.emptyContainer}>
+                        <Feather name="message-square" size={48} color={COLORS.gray700} />
+                        <Text style={styles.emptyText}>No posts yet</Text>
+                        <Text style={styles.emptySubtext}>Be the first to post something on the board!</Text>
+                        <TouchableOpacity style={styles.emptyButton} onPress={() => setIsCreateModalVisible(true)}>
+                            <Text style={styles.emptyButtonText}>Create Post</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                <View style={styles.feedScroll}>
                     {feedPosts.map(post => (
                         <View key={post.id} style={styles.feedCard}>
                             {/* Header */}
@@ -156,12 +194,21 @@ export const HouseBoardScreen = () => {
                                         <Text style={styles.timestamp}>{post.createdAt}</Text>
                                     </View>
                                 </View>
-                                {post.type === 'poll' && (
-                                    <View style={styles.pollBadge}>
-                                        <Feather name="bar-chart-2" size={12} color={COLORS.white} />
-                                        <Text style={styles.pollBadgeText}>Poll</Text>
-                                    </View>
-                                )}
+                                <View style={styles.cardHeaderActions}>
+                                    {post.type === 'poll' && (
+                                        <View style={styles.pollBadge}>
+                                            <Feather name="bar-chart-2" size={12} color={COLORS.white} />
+                                            <Text style={styles.pollBadgeText}>Poll</Text>
+                                        </View>
+                                    )}
+                                    <TouchableOpacity
+                                        style={styles.pinButton}
+                                        onPress={() => handleTogglePin(post.id)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <MaterialCommunityIcons name="pin-outline" size={18} color={COLORS.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
                             </View>
 
                             {/* Content */}
@@ -186,12 +233,32 @@ export const HouseBoardScreen = () => {
 
                             {/* Reactions */}
                             <View style={styles.reactionsRow}>
-                                {post.reactions.map((r, i) => (
-                                    <View key={i} style={styles.reactionPill}>
-                                        <Text style={styles.reactionEmoji}>{r.emoji} {r.count}</Text>
-                                    </View>
-                                ))}
-                                <TouchableOpacity style={styles.addReactionButton}>
+                                {post.reactions.map((r, i) => {
+                                    const isUserReacted = (userReactions[post.id] || []).includes(r.emoji);
+                                    return (
+                                        <TouchableOpacity
+                                            key={i}
+                                            style={[
+                                                styles.reactionPill,
+                                                isUserReacted && styles.reactionPillActive,
+                                            ]}
+                                            onPress={() => handleToggleReaction(post.id, r.emoji)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[
+                                                styles.reactionEmoji,
+                                                isUserReacted && styles.reactionEmojiActive,
+                                            ]}>
+                                                {r.emoji} {r.count}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                                <TouchableOpacity
+                                    style={styles.addReactionButton}
+                                    onPress={() => setEmojiPickerPostId(post.id)}
+                                    activeOpacity={0.7}
+                                >
                                     <Feather name="smile" size={16} color={COLORS.textSecondary} />
                                 </TouchableOpacity>
                             </View>
@@ -253,6 +320,36 @@ export const HouseBoardScreen = () => {
                         </TouchableOpacity>
                     </View>
                 </View>
+            </Modal>
+
+            {/* Emoji Picker Modal */}
+            <Modal
+                visible={emojiPickerPostId !== null}
+                animationType="fade"
+                transparent
+                onRequestClose={() => setEmojiPickerPostId(null)}
+            >
+                <TouchableOpacity
+                    style={styles.emojiPickerOverlay}
+                    activeOpacity={1}
+                    onPress={() => setEmojiPickerPostId(null)}
+                >
+                    <View style={styles.emojiPickerContainer}>
+                        <Text style={styles.emojiPickerTitle}>Add Reaction</Text>
+                        <View style={styles.emojiGrid}>
+                            {AVAILABLE_EMOJIS.map((emoji) => (
+                                <TouchableOpacity
+                                    key={emoji}
+                                    style={styles.emojiButton}
+                                    onPress={() => handleAddReaction(emoji)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.emojiButtonText}>{emoji}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                </TouchableOpacity>
             </Modal>
         </SafeAreaView>
     );
@@ -317,11 +414,24 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#4338CA',
     },
+    pinnedCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.sm,
+    },
     pinnedLabel: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        marginBottom: SPACING.sm,
+    },
+    unpinButton: {
+        width: 28,
+        height: 28,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: 'rgba(165, 180, 252, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     pinnedLabelText: {
         fontSize: 12,
@@ -366,6 +476,19 @@ const styles = StyleSheet.create({
     authorRow: {
         flexDirection: 'row',
         gap: SPACING.md,
+    },
+    cardHeaderActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.sm,
+    },
+    pinButton: {
+        width: 32,
+        height: 32,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     authorName: {
         fontSize: FONT_SIZE.md,
@@ -444,10 +567,20 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: BORDER_RADIUS.full,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    reactionPillActive: {
+        backgroundColor: COLORS.primary + '20',
+        borderColor: COLORS.primary,
     },
     reactionEmoji: {
         fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
+    },
+    reactionEmojiActive: {
+        color: COLORS.primary,
+        fontWeight: '600',
     },
     addReactionButton: {
         backgroundColor: COLORS.gray800,
@@ -533,5 +666,83 @@ const styles = StyleSheet.create({
         fontSize: FONT_SIZE.xs,
         marginBottom: SPACING.lg,
         fontStyle: 'italic',
+    },
+
+    // Emoji Picker Modal
+    emojiPickerOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emojiPickerContainer: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.lg,
+        width: '80%',
+        maxWidth: 300,
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
+    },
+    emojiPickerTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        textAlign: 'center',
+        marginBottom: SPACING.md,
+    },
+    emojiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        gap: SPACING.sm,
+    },
+    emojiButton: {
+        width: 48,
+        height: 48,
+        borderRadius: BORDER_RADIUS.lg,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emojiButtonText: {
+        fontSize: 24,
+    },
+    emptyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: SPACING.xl,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        marginTop: SPACING.lg,
+        gap: SPACING.sm,
+    },
+    emptyText: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginTop: SPACING.sm,
+    },
+    emptySubtext: {
+        fontSize: FONT_SIZE.md,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        marginBottom: SPACING.md,
+    },
+    emptyButton: {
+        backgroundColor: COLORS.primary,
+        paddingHorizontal: SPACING.lg,
+        paddingVertical: SPACING.md,
+        borderRadius: BORDER_RADIUS.full,
+    },
+    emptyButtonText: {
+        color: COLORS.white,
+        fontWeight: '600',
+        fontSize: FONT_SIZE.md,
+    },
+    feedScroll: {
+        paddingBottom: 100,
     },
 });

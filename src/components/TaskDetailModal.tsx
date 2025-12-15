@@ -107,7 +107,7 @@ export const TaskDetailModal = ({
                         <Text style={styles.sectionTitle}>Current Turn</Text>
                         <View style={styles.assigneeRow}>
                             <View style={styles.assigneeInfo}>
-                                <Avatar name={assignee.name} size="md" />
+                                <Avatar name={assignee.name} size="md" color={assignee.avatarColor || COLORS.primary} />
                                 <View>
                                     <Text style={styles.assigneeName}>{assignee.name}</Text>
                                     <Text style={styles.assigneeStatus}>
@@ -195,7 +195,7 @@ export const TaskDetailModal = ({
                                         <Text style={styles.rankText}>#{index + 1}</Text>
                                     </View>
                                     <View style={styles.leaderboardUser}>
-                                        <Avatar name={user.name} size="sm" />
+                                        <Avatar name={user.name} size="sm" color={user.avatarColor} />
                                         <Text style={styles.leaderboardName}>{user.name}</Text>
                                     </View>
                                     <View style={styles.countBadge}>

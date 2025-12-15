@@ -1,8 +1,8 @@
 import React from 'react';
-import { 
-  TouchableOpacity, 
-  Text, 
-  StyleSheet, 
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
   ActivityIndicator,
   ViewStyle,
   TextStyle,
@@ -35,28 +35,28 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
   const isDisabled = disabled || loading;
 
-  const buttonStyles: ViewStyle[] = [
+  const buttonStyles = [
     styles.base,
     styles[`size_${size}`],
     fullWidth && styles.fullWidth,
     isDisabled && styles.disabled,
     style,
-  ];
+  ].filter(Boolean);
 
-  const textStyles: TextStyle[] = [
+  const textStyles = [
     styles.text,
     styles[`text_${size}`],
     variant === 'outline' && styles.textOutline,
     variant === 'ghost' && styles.textGhost,
     variant === 'danger' && styles.textDanger,
-  ];
+  ].filter(Boolean);
 
   const content = (
     <>
       {loading ? (
-        <ActivityIndicator 
-          color={variant === 'outline' || variant === 'ghost' ? COLORS.primary : COLORS.white} 
-          size="small" 
+        <ActivityIndicator
+          color={variant === 'outline' || variant === 'ghost' ? COLORS.primary : COLORS.white}
+          size="small"
         />
       ) : (
         <>

@@ -1,8 +1,9 @@
 {
   "expo": {
     "name": "app",
-    "slug": "app",
+    "slug": "roommate-app",
     "version": "1.0.0",
+    "scheme": "roommate-app",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
