@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 
 interface ExpenseCardProps {
   expense: Expense;
-  paidByUser: User;
+  paidByUser?: User | null;
   currentUserId: string;
   onPress?: () => void;
 }
@@ -50,9 +50,13 @@ export const ExpenseCard: React.FC<ExpenseCardProps> = ({
               {expense.description}
             </Text>
             <View style={styles.meta}>
-              <Avatar name={paidByUser.name} color={paidByUser.avatarColor} size="sm" />
+              <Avatar
+                name={paidByUser?.name || 'Deleted'}
+                color={paidByUser?.avatarColor || COLORS.gray500}
+                size="sm"
+              />
               <Text style={styles.paidBy}>
-                {isPaidByMe ? 'You paid' : `${paidByUser.name.split(' ')[0]} paid`}
+                {isPaidByMe ? 'You paid' : `${(paidByUser?.name || 'Deleted User').split(' ')[0]} paid`}
               </Text>
               <View style={styles.dot} />
               <Text style={styles.date}>

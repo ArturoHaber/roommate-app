@@ -25,7 +25,7 @@ interface Activity {
 export const HouseholdScreen = () => {
     const navigation = useNavigation();
     const { user } = useAuthStore();
-    const { chores, assignments, completeChore, getLeaderboard, initializeDefaultChores, generateWeeklyAssignments } = useChoreStore();
+    const { chores, assignments, completeChore, getLeaderboard, fetchChores, fetchAssignments } = useChoreStore();
     const { members, household } = useHouseholdStore();
     const { nudges, sendNudge } = useNudgeStore();
 
@@ -39,19 +39,14 @@ export const HouseholdScreen = () => {
     const [selectedRoommate, setSelectedRoommate] = useState<typeof members[0] | null>(null);
     const [selectedTask, setSelectedTask] = useState<TaskDisplayData | null>(null);
 
-    // Initialize data on mount if needed
+    // Fetch chores from Supabase on mount
     useEffect(() => {
-        if (household && chores.length === 0) {
-            initializeDefaultChores(household.id);
+        if (household?.id) {
+            fetchChores(household.id).then(() => {
+                fetchAssignments(household.id);
+            });
         }
-    }, [household, chores.length]);
-
-    useEffect(() => {
-        if (members.length > 0 && assignments.length === 0) {
-            const memberIds = members.map(m => m.id);
-            generateWeeklyAssignments(memberIds);
-        }
-    }, [members.length, assignments.length]);
+    }, [household?.id]);
 
     if (!user) return null;
 

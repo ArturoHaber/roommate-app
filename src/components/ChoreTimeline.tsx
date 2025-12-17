@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, GRADIENTS } from '../constants/theme';
@@ -11,37 +11,6 @@ import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useNudgeStore } from '../stores/useNudgeStore';
 
-// Types (would normally import these)
-interface Chore {
-    id: string;
-    name: string;
-    assignedTo: string; // User ID
-    dueDate: Date;
-    completed: boolean;
-    points: number;
-    icon: string;
-}
-
-interface User {
-    id: string;
-    name: string;
-    avatarColor: string;
-}
-
-// Mock Data
-const MOCK_USERS: Record<string, User> = {
-    'u1': { id: 'u1', name: 'Alex', avatarColor: '#818CF8' },
-    'u2': { id: 'u2', name: 'Sam', avatarColor: '#FB7185' },
-    'u3': { id: 'u3', name: 'Jordan', avatarColor: '#34D399' },
-};
-
-const MOCK_CHORES: Chore[] = [
-    { id: 'c1', name: 'Dishes', assignedTo: 'u1', dueDate: new Date(), completed: false, points: 3, icon: 'droplet' },
-    { id: 'c2', name: 'Trash', assignedTo: 'u2', dueDate: new Date(), completed: true, points: 2, icon: 'trash-2' },
-    { id: 'c3', name: 'Vacuum', assignedTo: 'u3', dueDate: addDays(new Date(), 1), completed: false, points: 5, icon: 'wind' },
-    { id: 'c4', name: 'Plants', assignedTo: 'u1', dueDate: addDays(new Date(), 2), completed: false, points: 1, icon: 'sun' },
-];
-
 export const ChoreTimeline = () => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -49,8 +18,17 @@ export const ChoreTimeline = () => {
 
     const { user } = useAuthStore();
     const { members, household } = useHouseholdStore();
-    const { assignments } = useChoreStore();
+    const { chores, assignments, fetchChores, fetchAssignments, getAssignmentsForDate, getChoreById, completeChore } = useChoreStore();
     const { sendNudge } = useNudgeStore();
+
+    // Fetch chores when household changes
+    useEffect(() => {
+        if (household?.id) {
+            fetchChores(household.id).then(() => {
+                fetchAssignments(household.id);
+            });
+        }
+    }, [household?.id]);
 
     if (!user) return null;
 
@@ -64,15 +42,24 @@ export const ChoreTimeline = () => {
         setCurrentWeekStart(prev => addWeeks(prev, 1));
     };
 
+    // Get assignments for a specific date, enriched with chore details
     const getChoresForDate = (date: Date) => {
-        // Use MOCK_CHORES for now to show data
-        return MOCK_CHORES.filter(chore => {
-            return isSameDay(chore.dueDate, date);
-        }).map(chore => ({
-            ...chore,
-            choreId: chore.name, // Map for compatibility
-            userId: chore.assignedTo
-        }));
+        const dayAssignments = getAssignmentsForDate(date);
+        return dayAssignments.map(assignment => {
+            const chore = getChoreById(assignment.choreId);
+            return {
+                id: assignment.id,
+                assignmentId: assignment.id,
+                choreId: assignment.choreId,
+                name: chore?.name || 'Unknown Chore',
+                icon: chore?.icon || 'check-circle',
+                points: chore?.pointValue || 1,
+                assignedTo: assignment.assignedTo,
+                dueDate: assignment.dueDate,
+                completed: !!assignment.completedAt,
+                completedBy: assignment.completedBy,
+            };
+        });
     };
 
     const renderDay = (date: Date, index: number) => {
@@ -118,8 +105,8 @@ export const ChoreTimeline = () => {
         return (
             <View style={styles.choreList}>
                 {chores.map((chore) => {
-                    const assignee = MOCK_USERS[chore.userId] || members.find(m => m.id === chore.userId);
-                    const isMe = chore.userId === user.id || chore.userId === 'u1'; // Mock 'me' check
+                    const assignee = members.find(m => m.id === chore.assignedTo);
+                    const isMe = chore.assignedTo === user.id;
 
                     return (
                         <TouchableOpacity
@@ -129,25 +116,29 @@ export const ChoreTimeline = () => {
                         >
                             <View style={[styles.choreIcon, { backgroundColor: isMe ? COLORS.primary + '20' : COLORS.gray700 }]}>
                                 <Feather
-                                    name={isMe ? "star" : "circle"}
+                                    name={(chore.icon || 'check-circle') as any}
                                     size={20}
                                     color={isMe ? COLORS.primary : COLORS.textSecondary}
                                 />
                             </View>
                             <View style={styles.choreContent}>
                                 <Text style={[styles.choreTitle, isMe && styles.myChoreTitle]}>
-                                    {chore.choreId}
+                                    {chore.name}
                                 </Text>
                                 <View style={styles.assigneeRow}>
                                     {assignee && (
                                         <Avatar name={assignee.name} color={assignee.avatarColor} size="sm" />
                                     )}
                                     <Text style={styles.assigneeName}>
-                                        {isMe ? 'You' : assignee?.name}
+                                        {isMe ? 'You' : assignee?.name || 'Unassigned'}
                                     </Text>
                                 </View>
                             </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
+                            {chore.completed ? (
+                                <Feather name="check-circle" size={20} color={COLORS.success} />
+                            ) : (
+                                <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
+                            )}
                         </TouchableOpacity>
                     );
                 })}

@@ -112,6 +112,8 @@ interface PendingHousehold {
   emoji: string;
   isJoining: boolean;
   inviteCode?: string;
+  memberCount?: number;
+  memberPreviews?: any[];
 }
 
 // Keys for persisting onboarding state
@@ -212,6 +214,14 @@ export default function App() {
     }
   }, [isAuthenticated, user?.id, pendingHousehold, stateLoaded]);
 
+  // Redirect to choice screen if authenticated but no household
+  useEffect(() => {
+    if (isAuthenticated && stateLoaded && !isLoading && !household && !pendingHousehold && onboardingStep === 'carousel') {
+      console.log('[App] Authenticated but no household found, redirecting to choice screen');
+      setOnboardingStep('choice');
+    }
+  }, [isAuthenticated, stateLoaded, isLoading, household, pendingHousehold, onboardingStep]);
+
   // ===========================================
   // DEEP LINKING (Invite Codes)
   // ===========================================
@@ -237,6 +247,8 @@ export default function App() {
               emoji: householdData.emoji,
               isJoining: true,
               inviteCode: code,
+              memberCount: householdData.member_count,
+              memberPreviews: householdData.member_previews,
             });
             setOnboardingStep('join-preview');
           }
@@ -314,6 +326,8 @@ export default function App() {
                 emoji: householdData.emoji,
                 isJoining: true,
                 inviteCode: code,
+                memberCount: householdData.member_count,
+                memberPreviews: householdData.member_previews,
               });
               setOnboardingStep('join-preview');
             } else {
@@ -353,8 +367,8 @@ export default function App() {
         <HouseholdPreviewScreen
           householdName={pendingHousehold?.name || 'A Household'}
           householdEmoji={pendingHousehold?.emoji || '🏠'}
-          memberCount={2} // TODO: Fetch from invite code
-          memberNames={['Alex', 'Sam']} // TODO: Fetch from invite code
+          memberCount={pendingHousehold?.memberCount || 0}
+          memberNames={(pendingHousehold?.memberPreviews || []).map((m: any) => m.name)}
           onBack={() => {
             setPendingHousehold(null);
             setOnboardingStep('choice');

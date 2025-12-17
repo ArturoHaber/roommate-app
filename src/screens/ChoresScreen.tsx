@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   SafeAreaView,
   TouchableOpacity,
   StatusBar,
@@ -19,16 +19,27 @@ type FilterType = 'all' | 'mine' | 'today' | 'overdue';
 
 export const ChoresScreen: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-  
+
   const { user } = useAuthStore();
-  const { members } = useHouseholdStore();
-  const { 
-    assignments, 
-    getChoreById, 
+  const { members, household } = useHouseholdStore();
+  const {
+    assignments,
+    getChoreById,
     completeChore,
     getMyAssignments,
     getOverdueAssignments,
+    fetchChores,
+    fetchAssignments,
   } = useChoreStore();
+
+  // Fetch chores data on mount
+  useEffect(() => {
+    if (household?.id) {
+      fetchChores(household.id).then(() => {
+        fetchAssignments(household.id);
+      });
+    }
+  }, [household?.id]);
 
   if (!user) return null;
 
@@ -36,7 +47,7 @@ export const ChoresScreen: React.FC = () => {
 
   const getFilteredAssignments = () => {
     const incomplete = assignments.filter(a => !a.completedAt);
-    
+
     switch (activeFilter) {
       case 'mine':
         return incomplete.filter(a => a.assignedTo === user.id);
@@ -70,7 +81,7 @@ export const ChoresScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Chores</Text>
@@ -80,8 +91,8 @@ export const ChoresScreen: React.FC = () => {
       </View>
 
       {/* Filters */}
-      <ScrollView 
-        horizontal 
+      <ScrollView
+        horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filtersContainer}
       >
@@ -119,7 +130,7 @@ export const ChoresScreen: React.FC = () => {
       </ScrollView>
 
       {/* Chore List */}
-      <ScrollView 
+      <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
@@ -163,11 +174,11 @@ export const ChoresScreen: React.FC = () => {
                     <Text style={styles.taskCountText}>{memberAssignments.length}</Text>
                   </View>
                 </View>
-                
+
                 {memberAssignments.map((assignment) => {
                   const chore = getChoreById(assignment.choreId);
                   if (!chore) return null;
-                  
+
                   return (
                     <ChoreCard
                       key={assignment.id}
@@ -186,14 +197,14 @@ export const ChoresScreen: React.FC = () => {
           // Flat list for filtered views
           filteredAssignments.length === 0 ? (
             <Card style={styles.emptyCard}>
-              <Feather 
-                name={activeFilter === 'overdue' ? 'check-circle' : 'inbox'} 
-                size={48} 
-                color={COLORS.gray300} 
+              <Feather
+                name={activeFilter === 'overdue' ? 'check-circle' : 'inbox'}
+                size={48}
+                color={COLORS.gray300}
               />
               <Text style={styles.emptyTitle}>
-                {activeFilter === 'overdue' 
-                  ? 'No overdue tasks!' 
+                {activeFilter === 'overdue'
+                  ? 'No overdue tasks!'
                   : 'No tasks here'}
               </Text>
               <Text style={styles.emptySubtitle}>
@@ -207,7 +218,7 @@ export const ChoresScreen: React.FC = () => {
               const chore = getChoreById(assignment.choreId);
               const assignedUser = getUserById(assignment.assignedTo);
               if (!chore || !assignedUser) return null;
-              
+
               return (
                 <ChoreCard
                   key={assignment.id}

@@ -545,6 +545,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginBottom: SPACING.xl,
         position: 'relative',
+        zIndex: 10, // Ensure input receives touches
     },
     codeInputGradient: {
         ...StyleSheet.absoluteFillObject,
@@ -562,6 +563,8 @@ const styles = StyleSheet.create({
         color: COLORS.white,
         textAlign: 'center',
         letterSpacing: 4,
+        zIndex: 10,
+        elevation: 10,
     },
     joinButton: {
         width: '100%',

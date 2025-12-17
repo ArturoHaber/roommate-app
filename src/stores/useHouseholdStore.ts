@@ -8,6 +8,7 @@ interface HouseholdState {
   household: Household | null;
   members: User[];
   memberships: HouseholdMember[];
+  essentials: any[]; // HouseholdEssential[] - using any to avoid import cycles if strictly typed, but better to use real type
   isLoading: boolean;
   error: string | null;
 
@@ -18,6 +19,7 @@ interface HouseholdState {
   joinHousehold: (inviteCode: string, userId: string) => Promise<boolean>;
   fetchHousehold: (userId: string) => Promise<void>;
   updateHousehold: (updates: { name?: string; emoji?: string; address?: string }) => Promise<void>;
+  upsertEssential: (type: 'wifi' | 'landlord' | 'emergency' | 'custom', label: string, value: string) => Promise<void>;
   leaveHousehold: (userId: string) => Promise<void>;
   getMemberIds: () => string[];
   clearError: () => void;
@@ -40,6 +42,7 @@ export const useHouseholdStore = create<HouseholdState>()(
       household: null,
       members: [],
       memberships: [],
+      essentials: [],
       isLoading: false,
       error: null,
 
@@ -310,7 +313,15 @@ export const useHouseholdStore = create<HouseholdState>()(
 
           if (membersError) throw membersError;
 
-          // 4. Transform data
+          // 4. Fetch essentials
+          const { data: essentialsData, error: essentialsError } = await supabase
+            .from('household_essentials')
+            .select('*')
+            .eq('household_id', membershipData.household_id);
+
+          if (essentialsError) throw essentialsError;
+
+          // 5. Transform data
           const household: Household = {
             id: householdData.id,
             name: householdData.name,
@@ -343,7 +354,17 @@ export const useHouseholdStore = create<HouseholdState>()(
             joinedAt: new Date(m.joined_at),
           }));
 
-          set({ household, members, memberships, isLoading: false });
+          const essentials = (essentialsData || []).map((e: any) => ({
+            id: e.id,
+            householdId: e.household_id,
+            type: e.type,
+            label: e.label,
+            value: e.value,
+            icon: e.icon,
+            createdAt: new Date(e.created_at),
+          }));
+
+          set({ household, members, memberships, essentials, isLoading: false });
         } catch (error: any) {
           console.error('Fetch household error:', error);
           set({ error: error.message, isLoading: false });
@@ -374,6 +395,85 @@ export const useHouseholdStore = create<HouseholdState>()(
         } catch (error: any) {
           console.error('Update household error:', error);
           set({ error: error.message, isLoading: false });
+        }
+      },
+
+      // ========================================================================
+      // UPSERT ESSENTIAL
+      // ========================================================================
+      upsertEssential: async (type: 'wifi' | 'landlord' | 'emergency' | 'custom', label: string, value: string) => {
+        const { household } = get();
+        if (!household) return;
+
+        // Optimistic update
+        const tempId = `temp_${Date.now()}`;
+        const previousEssentials = get().essentials;
+
+        // Check if we're updating an existing one (by type) or adding new
+        // For WiFi name/pass we usually want distinct entries, but let's simplify:
+        // If type is 'wifi', we might have multiple. But user request implies "The Wifi Name".
+        // Let's assume for now we use 'label' to distinguish if type is same, or just append.
+        // Actually, for "The Landlord", we probably just want one.
+        // Let's rely on the DB insert. 
+
+        // Wait, for upsert we need an ID or a constraint. 
+        // The table doesn't have a unique constraint on (household_id, type).
+        // So we should probably check if one exists with that specific label/type combo or just insert?
+        // Let's TRY to find an existing one locally with the same type AND label (e.g. "WiFi Name", "WiFi Password")
+        // and update that, otherwise insert.
+
+        const existing = previousEssentials.find(e => e.type === type && e.label === label);
+
+        set({ isLoading: true, error: null });
+
+        try {
+          let data, error;
+
+          if (existing) {
+            // Update
+            ({ data, error } = await supabase
+              .from('household_essentials')
+              .update({ value })
+              .eq('id', existing.id)
+              .select()
+              .single());
+          } else {
+            // Insert
+            ({ data, error } = await supabase
+              .from('household_essentials')
+              .insert({
+                household_id: household.id,
+                type,
+                label,
+                value,
+                icon: type === 'wifi' ? 'wifi' : (type === 'landlord' ? 'phone' : 'info')
+              })
+              .select()
+              .single());
+          }
+
+          if (error) throw error;
+
+          const newEssential = {
+            id: data.id,
+            householdId: data.household_id,
+            type: data.type,
+            label: data.label,
+            value: data.value,
+            icon: data.icon,
+            createdAt: new Date(data.created_at),
+          };
+
+          // Merge into state
+          const newEssentials = existing
+            ? previousEssentials.map(e => e.id === existing.id ? newEssential : e)
+            : [...previousEssentials, newEssential];
+
+          set({ essentials: newEssentials, isLoading: false });
+
+        } catch (error: any) {
+          console.error('Upsert essential error:', error);
+          set({ error: error.message, isLoading: false, essentials: previousEssentials });
         }
       },
 

@@ -426,17 +426,17 @@ export const useAuthStore = create<AuthState>()(
       deleteAccount: async () => {
         set({ isLoading: true, error: null });
         try {
-          const { user } = get();
-          if (user) {
-            const { error } = await supabase.from('profiles').delete().eq('id', user.id);
-            if (error) throw error;
-          }
+          // Call the secure RPC
+          const { error } = await supabase.rpc('delete_own_account');
+
+          if (error) throw error;
 
           await supabase.auth.signOut();
           set({ user: null, isAuthenticated: false, isOnboarded: false, isLoading: false });
         } catch (error: any) {
           console.error('Delete account error:', error);
           set({ error: error.message, isLoading: false });
+          throw error; // Re-throw so UI can show alert
         }
       },
 

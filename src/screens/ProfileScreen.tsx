@@ -149,6 +149,35 @@ export const ProfileScreen: React.FC = () => {
     setIsEditProfileVisible(false);
   };
 
+  const handleDeleteAccount = () => {
+    const confirmationMessage = 'Are you sure you want to delete your account? This cannot be undone. All your data will be permanently removed.';
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmationMessage)) {
+        deleteAccount().catch(err => window.alert('Failed to delete account: ' + err.message));
+      }
+    } else {
+      Alert.alert(
+        'Delete Account',
+        confirmationMessage,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete Forever',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteAccount();
+              } catch (err: any) {
+                Alert.alert('Error', 'Failed to delete account: ' + err.message);
+              }
+            }
+          },
+        ]
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -288,7 +317,6 @@ export const ProfileScreen: React.FC = () => {
                       icon="log-out"
                       label="Leave Household"
                       onPress={handleLeaveHousehold}
-                      danger
                     />
                     <View style={styles.divider} />
                   </>
@@ -297,8 +325,25 @@ export const ProfileScreen: React.FC = () => {
                   icon="log-out"
                   label="Log Out"
                   onPress={handleLogout}
+                />
+              </Card>
+            </View>
+
+            {/* Danger Zone */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitleDanger}>Danger Zone</Text>
+              <Card padding="none" style={styles.dangerCard}>
+                <SettingsItem
+                  icon="trash-2"
+                  label="Delete Account"
+                  onPress={handleDeleteAccount}
                   danger
                 />
+                <View style={styles.dangerWarning}>
+                  <Text style={styles.dangerWarningText}>
+                    Permanently delete your account and all associated data.
+                  </Text>
+                </View>
               </Card>
             </View>
 
@@ -721,5 +766,30 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: '700',
     fontSize: FONT_SIZE.md,
+  },
+  sectionTitleDanger: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: FONT_WEIGHT.semibold,
+    color: COLORS.error,
+    marginBottom: SPACING.sm,
+    marginLeft: SPACING.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dangerCard: {
+    borderWidth: 1,
+    borderColor: COLORS.error,
+    overflow: 'hidden',
+  },
+  dangerWarning: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.error + '10', // Light red background
+    borderTopWidth: 1,
+    borderTopColor: COLORS.error + '20',
+  },
+  dangerWarningText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.error,
+    textAlign: 'center',
   },
 });

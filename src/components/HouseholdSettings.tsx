@@ -12,12 +12,22 @@ const HOUSE_EMOJIS = ['🏠', '🏡', '🏢', '🏘️', '🏰', '🛖', '🏗�
 
 export const HouseholdSettings = () => {
     // Real data from stores
-    const { household, members, memberships, updateHousehold } = useHouseholdStore();
+    const { household, members, memberships, essentials, updateHousehold, upsertEssential } = useHouseholdStore();
     const { user } = useAuthStore();
 
     const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
     const [isMemberMenuVisible, setIsMemberMenuVisible] = useState(false);
+    const [isEssentialsModalVisible, setIsEssentialsModalVisible] = useState(false);
     const [selectedMember, setSelectedMember] = useState<typeof members[0] | null>(null);
+
+    // Editing Essentials
+    const [editingType, setEditingType] = useState<'wifi' | 'landlord'>('wifi');
+    const [editingLabel, setEditingLabel] = useState('');
+    const [editingValue, setEditingValue] = useState('');
+
+    // Local UI state
+    const [isWifiPassVisible, setIsWifiPassVisible] = useState(false);
+    const [isLandlordVisible, setIsLandlordVisible] = useState(false); // Hidden until revealed
 
     // Initialize state from real household data
     const [houseName, setHouseName] = useState(household?.name || 'My Household');
@@ -68,6 +78,24 @@ export const HouseholdSettings = () => {
         setIsEditProfileVisible(false);
     };
 
+    const handleSaveEssential = async () => {
+        if (!editingValue.trim()) return; // Don't save empty? Or maybe allow deleting?
+
+        await upsertEssential(
+            editingType === 'wifi' ? 'wifi' : 'landlord',
+            editingLabel,
+            editingValue.trim()
+        );
+        setIsEssentialsModalVisible(false);
+    };
+
+    const openEditEssential = (type: 'wifi' | 'landlord', label: string, currentValue: string) => {
+        setEditingType(type);
+        setEditingLabel(label);
+        setEditingValue(currentValue);
+        setIsEssentialsModalVisible(true);
+    };
+
     const handleMemberAction = (action: string) => {
         console.log(`Action ${action} on ${selectedMember?.name}`);
         setIsMemberMenuVisible(false);
@@ -78,6 +106,12 @@ export const HouseholdSettings = () => {
     const getMemberRole = (userId: string): string => {
         const membership = memberships.find(m => m.userId === userId);
         return membership?.role === 'admin' ? 'Admin' : 'Member';
+    };
+
+    // Helper to get essential value
+    const getEssentialValue = (type: string, label: string, fallback: string) => {
+        const item = essentials?.find(e => e.type === type && e.label === label);
+        return item ? item.value : fallback;
     };
 
     return (
@@ -170,7 +204,7 @@ export const HouseholdSettings = () => {
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Essentials</Text>
 
-                {/* WiFi Card - TODO: Wire up to household_essentials table */}
+                {/* WiFi Card */}
                 <View style={styles.card}>
                     <View style={styles.wifiRow}>
                         <View style={styles.wifiIcon}>
@@ -178,13 +212,14 @@ export const HouseholdSettings = () => {
                         </View>
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>WiFi Network</Text>
-                            <Text style={styles.wifiValue}>Tap to add WiFi info</Text>
+                            <Text style={styles.wifiValue}>
+                                {getEssentialValue('wifi', 'WiFi Name', 'Tap edit to add')}
+                            </Text>
                         </View>
-                        <TouchableOpacity onPress={() => {
-                            if (Platform.OS === 'web') {
-                                window.alert('WiFi settings coming soon!');
-                            }
-                        }} style={styles.copyButton}>
+                        <TouchableOpacity
+                            onPress={() => openEditEssential('wifi', 'WiFi Name', getEssentialValue('wifi', 'WiFi Name', ''))}
+                            style={styles.copyButton}
+                        >
                             <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
                         </TouchableOpacity>
                     </View>
@@ -195,13 +230,25 @@ export const HouseholdSettings = () => {
                         </View>
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>Password</Text>
-                            <Text style={styles.wifiValue}>••••••••</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Text style={styles.wifiValue}>
+                                    {isWifiPassVisible
+                                        ? getEssentialValue('wifi', 'Password', 'Not set')
+                                        : '••••••••'}
+                                </Text>
+                                <TouchableOpacity onPress={() => setIsWifiPassVisible(!isWifiPassVisible)}>
+                                    <Feather name={isWifiPassVisible ? "eye-off" : "eye"} size={14} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                        <TouchableOpacity onPress={() => {
-                            if (Platform.OS === 'web') {
-                                window.alert('WiFi settings coming soon!');
+                        <TouchableOpacity style={styles.copyButton} onPress={() => {
+                            if (isWifiPassVisible) {
+                                copyToClipboard(getEssentialValue('wifi', 'Password', ''));
+                            } else {
+                                openEditEssential('wifi', 'Password', getEssentialValue('wifi', 'Password', ''));
                             }
-                        }} style={styles.copyButton}>
+                        }}>
+                            {/* If visible, show copy, else show edit? Or standard just edit? User asked for edit. Let's keep edit always accessible via button, but maybe copy if long press on text. Let's make this button always Edit for consistency unless we want a specific copy button. Existing UI had copy button on address. Let's keep it as Edit. */}
                             <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
                         </TouchableOpacity>
                     </View>
@@ -215,11 +262,41 @@ export const HouseholdSettings = () => {
                         </View>
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>Emergency / Landlord</Text>
-                            <Text style={styles.wifiValue}>Mr. Roper: 555-0123</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Text style={styles.wifiValue}>
+                                    {isLandlordVisible
+                                        ? getEssentialValue('landlord', 'Number', 'Not set')
+                                        : 'Tap Reveal to view'}
+                                </Text>
+                                {!isLandlordVisible && (
+                                    <TouchableOpacity onPress={() => setIsLandlordVisible(true)}>
+                                        <Text style={{ fontSize: 12, color: COLORS.primary, fontWeight: '600' }}>Reveal</Text>
+                                    </TouchableOpacity>
+                                )}
+                                {isLandlordVisible && (
+                                    <TouchableOpacity onPress={() => setIsLandlordVisible(false)}>
+                                        <Feather name="eye-off" size={14} color={COLORS.textSecondary} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         </View>
-                        <TouchableOpacity onPress={() => copyToClipboard('555-0123')} style={styles.copyButton}>
-                            <Feather name="copy" size={18} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: 'row' }}>
+                            {isLandlordVisible && (
+                                <TouchableOpacity
+                                    onPress={() => copyToClipboard(getEssentialValue('landlord', 'Number', ''))}
+                                    style={[styles.copyButton, { marginRight: 4 }]}
+                                >
+                                    <Feather name="copy" size={18} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                                onPress={() => openEditEssential('landlord', 'Number', getEssentialValue('landlord', 'Number', ''))}
+                                style={styles.copyButton}
+                            >
+                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </View>
@@ -393,6 +470,47 @@ export const HouseholdSettings = () => {
                         <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('remove')}>
                             <Feather name="user-x" size={20} color={COLORS.error} />
                             <Text style={[styles.menuItemText, { color: COLORS.error }]}>Remove from House</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* Edit Essentials Modal */}
+            <Modal
+                visible={isEssentialsModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setIsEssentialsModalVisible(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setIsEssentialsModalVisible(false)}
+                >
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>
+                                Edit {editingLabel}
+                            </Text>
+                            <TouchableOpacity onPress={() => setIsEssentialsModalVisible(false)}>
+                                <Feather name="x" size={24} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.inputLabel}>{editingLabel}</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={editingValue}
+                                onChangeText={setEditingValue}
+                                placeholder={`Enter ${editingLabel}`}
+                                placeholderTextColor={COLORS.textSecondary}
+                                autoFocus
+                            />
+                        </View>
+
+                        <TouchableOpacity style={styles.shareButton} onPress={handleSaveEssential}>
+                            <Text style={styles.shareButtonText}>Save</Text>
                         </TouchableOpacity>
                     </Pressable>
                 </TouchableOpacity>

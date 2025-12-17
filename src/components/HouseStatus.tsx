@@ -59,12 +59,6 @@ export const HouseStatus = () => {
     // or a placeholder.
     const { household } = useHouseholdStore(); // Need to get household to check
 
-    // If no household, we can't show status correctly yet. 
-    // Ideally the dashboard shouldn't render, but as a safeguard:
-    if (!members.length) {
-        return null;
-    }
-
     // Use ref for index since PanResponder doesn't see state updates
     const quoteIndexRef = useRef(0);
     const hasPickedQuote = useRef(false);
@@ -98,7 +92,7 @@ export const HouseStatus = () => {
                 hasPickedQuote.current = false; // Reset for new drag
                 Animated.spring(scale, {
                     toValue: 0.98,
-                    useNativeDriver: true,
+                    useNativeDriver: true, // Use native driver for performance
                     tension: 300,
                     friction: 20,
                 }).start();
@@ -146,6 +140,12 @@ export const HouseStatus = () => {
             },
         })
     ).current;
+
+    // Safe guard: If no household (e.g. anonymous user just authenticated but household creation lagging), return empty
+    // or a placeholder.
+    if (!members.length) {
+        return null;
+    }
 
 
 

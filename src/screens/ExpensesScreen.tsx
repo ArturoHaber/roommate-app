@@ -42,8 +42,19 @@ export const ExpensesScreen = () => {
 
   // Build ledger items from expenses
   const ledgerItems = expenses.slice(0, 5).map(expense => {
-    const payer = members.find(m => m.id === expense.paidBy) ||
-      (expense.paidBy === user.id ? { id: user.id, name: 'You', avatarColor: user.avatarColor } : null);
+    // If paidBy is present but not in members, it's a deleted user
+    // However, if paidBy is NULL (from new migration), we also treat as deleted
+    const isMe = expense.paidBy === user.id;
+    const isDeleted = !isMe && !members.find(m => m.id === expense.paidBy);
+
+    const payer = isMe
+      ? { id: user.id, name: 'You', avatarColor: user.avatarColor }
+      : (members.find(m => m.id === expense.paidBy) || {
+        id: 'deleted',
+        name: 'Deleted User',
+        avatarColor: COLORS.gray500
+      });
+
     const mySplit = expense.splits?.find(s => s.userId === user.id);
     const iOwe = expense.paidBy !== user.id && mySplit && !mySplit.paid;
     const theyOwe = expense.paidBy === user.id && expense.splits?.some(s => s.userId !== user.id && !s.paid);
@@ -226,7 +237,9 @@ export const ExpensesScreen = () => {
             <View style={styles.transactionList}>
               {expenses.slice(0, 5).map(expense => {
                 const payer = members.find(m => m.id === expense.paidBy) ||
-                  (expense.paidBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+                  (expense.paidBy === user.id
+                    ? { name: 'You', avatarColor: user.avatarColor }
+                    : { name: 'Deleted User', avatarColor: COLORS.gray500 });
                 return (
                   <View key={expense.id} style={styles.transactionRow}>
                     <View style={styles.transactionIcon}>
