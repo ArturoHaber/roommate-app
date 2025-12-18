@@ -5,11 +5,12 @@ import { COLORS, FONT_SIZE, FONT_WEIGHT } from '../constants/theme';
 interface AvatarProps {
   name: string;
   color: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   showBorder?: boolean;
 }
 
 const SIZES = {
+  xs: 24,
   sm: 32,
   md: 40,
   lg: 56,
@@ -17,15 +18,16 @@ const SIZES = {
 };
 
 const FONT_SIZES = {
+  xs: 9,
   sm: FONT_SIZE.xs,
   md: FONT_SIZE.md,
   lg: FONT_SIZE.xl,
   xl: FONT_SIZE.xxxl,
 };
 
-export const Avatar: React.FC<AvatarProps> = ({ 
-  name, 
-  color, 
+export const Avatar: React.FC<AvatarProps> = ({
+  name,
+  color,
   size = 'md',
   showBorder = false,
 }) => {

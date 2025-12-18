@@ -21,6 +21,9 @@ interface HouseholdState {
   updateHousehold: (updates: { name?: string; emoji?: string; address?: string }) => Promise<void>;
   upsertEssential: (type: 'wifi' | 'landlord' | 'emergency' | 'custom', label: string, value: string) => Promise<void>;
   leaveHousehold: (userId: string) => Promise<void>;
+  promoteMember: (userId: string) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
+  deleteHousehold: () => Promise<void>;
   getMemberIds: () => string[];
   clearError: () => void;
   clearHousehold: () => void;
@@ -502,6 +505,128 @@ export const useHouseholdStore = create<HouseholdState>()(
           set({ household: null, members: [], memberships: [], isLoading: false });
         } catch (error: any) {
           console.error('Leave household error:', error);
+          set({ error: error.message, isLoading: false });
+        }
+      },
+
+      // ========================================================================
+      // PROMOTE MEMBER TO ADMIN
+      // ========================================================================
+      promoteMember: async (userId: string): Promise<void> => {
+        set({ isLoading: true, error: null });
+
+        try {
+          const { household, memberships } = get();
+          if (!household) {
+            set({ isLoading: false });
+            return;
+          }
+
+          // Update role to admin in database
+          const { error } = await supabase
+            .from('household_members')
+            .update({ role: 'admin' })
+            .eq('household_id', household.id)
+            .eq('user_id', userId);
+
+          if (error) throw error;
+
+          // Update local state
+          const updatedMemberships = memberships.map(m =>
+            m.userId === userId ? { ...m, role: 'admin' as const } : m
+          );
+          set({ memberships: updatedMemberships, isLoading: false });
+        } catch (error: any) {
+          console.error('Promote member error:', error);
+          set({ error: error.message, isLoading: false });
+        }
+      },
+
+      // ========================================================================
+      // REMOVE MEMBER FROM HOUSEHOLD
+      // ========================================================================
+      removeMember: async (userId: string): Promise<void> => {
+        set({ isLoading: true, error: null });
+
+        try {
+          const { household, members, memberships } = get();
+          if (!household) {
+            set({ isLoading: false });
+            return;
+          }
+
+          // Delete membership
+          const { error } = await supabase
+            .from('household_members')
+            .delete()
+            .eq('household_id', household.id)
+            .eq('user_id', userId);
+
+          if (error) throw error;
+
+          // Update local state
+          set({
+            members: members.filter(m => m.id !== userId),
+            memberships: memberships.filter(m => m.userId !== userId),
+            isLoading: false,
+          });
+        } catch (error: any) {
+          console.error('Remove member error:', error);
+          set({ error: error.message, isLoading: false });
+        }
+      },
+
+      // ========================================================================
+      // DELETE HOUSEHOLD (Admin only)
+      // ========================================================================
+      deleteHousehold: async (): Promise<void> => {
+        set({ isLoading: true, error: null });
+
+        try {
+          const { household } = get();
+          if (!household) {
+            set({ isLoading: false });
+            return;
+          }
+
+          // Delete all household members first (foreign key constraint)
+          const { error: membersError } = await supabase
+            .from('household_members')
+            .delete()
+            .eq('household_id', household.id);
+
+          if (membersError) throw membersError;
+
+          // Delete essentials
+          await supabase
+            .from('household_essentials')
+            .delete()
+            .eq('household_id', household.id);
+
+          // Delete chore assignments
+          await supabase
+            .from('chore_assignments')
+            .delete()
+            .eq('household_id', household.id);
+
+          // Delete chores
+          await supabase
+            .from('chores')
+            .delete()
+            .eq('household_id', household.id);
+
+          // Finally delete the household
+          const { error: householdError } = await supabase
+            .from('households')
+            .delete()
+            .eq('id', household.id);
+
+          if (householdError) throw householdError;
+
+          // Clear local state
+          set({ household: null, members: [], memberships: [], essentials: [], isLoading: false });
+        } catch (error: any) {
+          console.error('Delete household error:', error);
           set({ error: error.message, isLoading: false });
         }
       },

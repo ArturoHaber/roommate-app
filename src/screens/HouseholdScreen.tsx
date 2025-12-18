@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format, isToday, isTomorrow, isPast, addDays } from 'date-fns';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
-import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData } from '../components';
+import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData, NeedsAttentionCard, ChoresComp, HouseStatusHeader, HouseOverview } from '../components';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useNudgeStore } from '../stores/useNudgeStore';
+import { getChoreStyle } from '../utils/choreStyles';
 
 // Activity types for the feed
 interface Activity {
@@ -25,7 +26,7 @@ interface Activity {
 export const HouseholdScreen = () => {
     const navigation = useNavigation();
     const { user } = useAuthStore();
-    const { chores, assignments, completeChore, getLeaderboard, fetchChores, fetchAssignments } = useChoreStore();
+    const { chores, assignments, completeChore, getLeaderboard, fetchChores, fetchAssignments, seedTestChores } = useChoreStore();
     const { members, household } = useHouseholdStore();
     const { nudges, sendNudge } = useNudgeStore();
 
@@ -78,33 +79,52 @@ export const HouseholdScreen = () => {
         .sort((a, b) => (a.urgent === b.urgent ? 0 : a.urgent ? -1 : 1))
         .slice(0, 5);
 
-    // Convert myAssignments to TaskDisplayData format
-    const displayTasks: TaskDisplayData[] = myAssignments.map(a => ({
-        id: a.id,
-        choreId: a.choreId,
-        name: a.name,
-        icon: a.icon,
-        dueText: a.due,
-        room: a.room,
-        isUrgent: a.urgent,
-        points: a.points,
-    }));
+    // Convert myAssignments to TaskDisplayData format with emoji styling
+    const displayTasks = myAssignments.map(a => {
+        const style = getChoreStyle(a.name);
+        return {
+            id: a.id,
+            choreId: a.choreId,
+            name: a.name,
+            icon: a.icon,
+            dueText: a.due,
+            room: a.room,
+            isUrgent: a.urgent,
+            points: a.points,
+            emoji: style.emoji,
+            color: style.color,
+            bgColor: style.bgColor,
+        };
+    });
 
     // Get leaderboard for fairness bars
     const leaderboard = getLeaderboard();
     const maxCount = Math.max(...leaderboard.map(l => l.completedChores), 1);
 
-    // Build activity feed from completed assignments and nudges
-    const activityFeed: Activity[] = [];
+    // Build activity feed from completed assignments - useMemo for real-time updates
+    const activityFeed: Activity[] = useMemo(() => {
+        const feed: Activity[] = [];
 
-    // Add completed assignments
-    assignments
-        .filter(a => a.completedAt)
-        .slice(0, 5)
-        .forEach(a => {
+        // Add completed assignments (sorted by completion date)
+        const completedAssignments = assignments
+            .filter(a => a.completedAt)
+            .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())
+            .slice(0, 10);
+
+        completedAssignments.forEach(a => {
             const chore = chores.find(c => c.id === a.choreId);
-            const completedBy = members.find(m => m.id === a.completedBy) ||
-                (a.completedBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+            const completedById = a.completedBy || a.assignedTo;
+            let completedBy = members.find(m => m.id === completedById);
+
+            // Check if it's the current user
+            if (completedById === user.id) {
+                completedBy = {
+                    id: user.id,
+                    name: user.name || 'You',
+                    avatarColor: user.avatarColor || COLORS.primary
+                } as any;
+            }
+
             if (completedBy && chore) {
                 const completedDate = new Date(a.completedAt!);
                 const now = new Date();
@@ -113,7 +133,7 @@ export const HouseholdScreen = () => {
                     diffHours < 24 ? `${diffHours}h ago` :
                         `${Math.floor(diffHours / 24)}d ago`;
 
-                activityFeed.push({
+                feed.push({
                     id: a.id,
                     type: 'complete',
                     user: completedBy.name,
@@ -124,21 +144,24 @@ export const HouseholdScreen = () => {
             }
         });
 
-    // Add nudges
-    nudges.slice(0, 3).forEach(n => {
-        const sender = members.find(m => m.id === n.createdBy) ||
-            (n.createdBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
-        if (sender) {
-            activityFeed.push({
-                id: n.id,
-                type: 'nudge',
-                user: sender.name,
-                userColor: sender.avatarColor,
-                chore: n.message.substring(0, 20) + '...',
-                time: format(new Date(n.createdAt), 'h:mm a'),
-            });
-        }
-    });
+        // Add nudges
+        nudges.slice(0, 3).forEach(n => {
+            const sender = members.find(m => m.id === n.createdBy) ||
+                (n.createdBy === user.id ? { name: 'You', avatarColor: user.avatarColor } : null);
+            if (sender) {
+                feed.push({
+                    id: n.id,
+                    type: 'nudge',
+                    user: sender.name,
+                    userColor: sender.avatarColor,
+                    chore: n.message.substring(0, 20) + '...',
+                    time: format(new Date(n.createdAt), 'h:mm a'),
+                });
+            }
+        });
+
+        return feed;
+    }, [assignments, chores, members, user, nudges]);
 
     // Get roommates (exclude self)
     const roommates = members.filter(m => m.id !== user.id);
@@ -221,18 +244,38 @@ export const HouseholdScreen = () => {
                 {/* Header */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>Chores</Text>
-                    <TouchableOpacity style={styles.headerButton}>
-                        <Feather name="settings" size={20} color={COLORS.textSecondary} />
+                    <TouchableOpacity
+                        style={styles.headerButton}
+                        onPress={async () => {
+                            if (household?.id && members.length > 0) {
+                                const memberIds = members.map(m => m.id);
+                                await seedTestChores(household.id, memberIds);
+                                Alert.alert('✅ Test Data Added!', '6 chores and assignments have been created.');
+                            }
+                        }}
+                    >
+                        <Feather name="database" size={20} color={COLORS.secondary} />
                     </TouchableOpacity>
                 </View>
 
-                {/* iOS Glass Action Bar */}
+                {/* ========================================== */}
+                {/* HOUSE OVERVIEW - Rich Dashboard Header */}
+                {/* ========================================== */}
+                <HouseOverview />
+
+                {/* Chores Component */}
+                <ChoresComp heightRatio={0.42} showHistory={false} />
+
+                {/* Divider for clean separation */}
+                <View style={{ height: SPACING.xl }} />
+
+                {/* 
+                ============================================================
+                ARCHIVED: iOS Glass Action Bar + HouseStatusHeader
+                Keeping for potential future use
+                ============================================================
                 <View style={styles.actionBar}>
-                    <TouchableOpacity
-                        style={styles.actionCard}
-                        onPress={() => setCompleteSheetVisible(true)}
-                        activeOpacity={0.7}
-                    >
+                    <TouchableOpacity style={styles.actionCard} onPress={() => setCompleteSheetVisible(true)}>
                         <View style={styles.actionCardInner}>
                             <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(52, 211, 153, 0.08)' }]}>
                                 <Feather name="check" size={18} color="#6EE7B7" />
@@ -240,14 +283,8 @@ export const HouseholdScreen = () => {
                             <Text style={styles.actionCardLabel}>Complete</Text>
                         </View>
                     </TouchableOpacity>
-
                     <View style={styles.actionDivider} />
-
-                    <TouchableOpacity
-                        style={styles.actionCard}
-                        onPress={() => setQuickLogVisible(true)}
-                        activeOpacity={0.7}
-                    >
+                    <TouchableOpacity style={styles.actionCard} onPress={() => setQuickLogVisible(true)}>
                         <View style={styles.actionCardInner}>
                             <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(167, 139, 250, 0.08)' }]}>
                                 <Feather name="plus" size={18} color="#A78BFA" />
@@ -255,14 +292,8 @@ export const HouseholdScreen = () => {
                             <Text style={styles.actionCardLabel}>Log</Text>
                         </View>
                     </TouchableOpacity>
-
                     <View style={styles.actionDivider} />
-
-                    <TouchableOpacity
-                        style={styles.actionCard}
-                        onPress={() => setSnitchVisible(true)}
-                        activeOpacity={0.7}
-                    >
+                    <TouchableOpacity style={styles.actionCard} onPress={() => setSnitchVisible(true)}>
                         <View style={styles.actionCardInner}>
                             <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(251, 146, 160, 0.08)' }]}>
                                 <Feather name="eye" size={18} color="#FDA4AF" />
@@ -271,50 +302,18 @@ export const HouseholdScreen = () => {
                         </View>
                     </TouchableOpacity>
                 </View>
-
-                {/* Your Turn Section */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>Your Turn</Text>
-                        <Text style={styles.sectionCount}>{displayTasks.length} tasks</Text>
-                    </View>
-
-                    <View style={styles.yourTurnContainer}>
-                        {displayTasks.length > 0 ? (
-                            <View style={styles.choreList}>
-                                {displayTasks.map((task) => (
-                                    <UnifiedTaskCard
-                                        key={task.id}
-                                        task={task}
-                                        variant="compact"
-                                        onPress={() => setSelectedTask(task)}
-                                        onComplete={() => handleMarkDone(task.id, task.name, task.points)}
-                                        showCompleteButton={true}
-                                    />
-                                ))}
-                            </View>
-                        ) : (
-                            <View style={styles.emptyState}>
-                                <Text style={styles.emptyEmoji}>🎉</Text>
-                                <Text style={styles.emptyText}>All caught up!</Text>
-                                <Text style={styles.emptySubtext}>No chores assigned to you right now</Text>
-                            </View>
-                        )}
-                    </View>
-                </View>
+                <HouseStatusHeader compact />
+                */}
 
                 {/* Activity Feed */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Recent Activity</Text>
-                        <TouchableOpacity onPress={() => navigation.navigate('ActivityHistory' as never)}>
-                            <Text style={styles.seeAll}>See All</Text>
-                        </TouchableOpacity>
                     </View>
 
                     {activityFeed.length > 0 ? (
                         <View style={styles.activityList}>
-                            {(activityExpanded ? activityFeed : activityFeed.slice(0, 4)).map((activity) => (
+                            {(activityExpanded ? activityFeed.slice(0, 4) : activityFeed.slice(0, 1)).map((activity) => (
                                 <TouchableOpacity
                                     key={activity.id}
                                     style={styles.activityItem}
@@ -341,6 +340,37 @@ export const HouseholdScreen = () => {
                                     </View>
                                 </TouchableOpacity>
                             ))}
+
+                            {/* View Calendar Button - Only visible when expanded */}
+                            {activityExpanded && (
+                                <TouchableOpacity
+                                    style={styles.calendarButton}
+                                    onPress={() => navigation.navigate('ActivityHistory' as never)}
+                                    activeOpacity={0.8}
+                                >
+                                    <Feather name="calendar" size={16} color={COLORS.primary} />
+                                    <Text style={styles.calendarButtonText}>View Full Calendar</Text>
+                                    <Feather name="chevron-right" size={16} color={COLORS.textTertiary} />
+                                </TouchableOpacity>
+                            )}
+
+                            {/* Expand/Collapse Button at bottom */}
+                            {activityFeed.length > 1 && (
+                                <TouchableOpacity
+                                    onPress={() => setActivityExpanded(!activityExpanded)}
+                                    style={styles.expandButtonBottom}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.expandButtonText}>
+                                        {activityExpanded ? 'Show Less' : 'Show More'}
+                                    </Text>
+                                    <Feather
+                                        name={activityExpanded ? 'chevron-up' : 'chevron-down'}
+                                        size={14}
+                                        color={COLORS.primary}
+                                    />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     ) : (
                         <View style={styles.emptyCard}>
@@ -361,7 +391,7 @@ export const HouseholdScreen = () => {
                             <View key={person.name + index} style={styles.fairnessRow}>
                                 <View style={styles.fairnessLeft}>
                                     <Avatar name={person.name} color={person.color} size="sm" />
-                                    <Text style={styles.fairnessName}>{person.name}</Text>
+                                    <Text style={styles.fairnessName} numberOfLines={1}>{person.name}</Text>
                                 </View>
                                 <View style={styles.fairnessBarContainer}>
                                     <View style={styles.fairnessBarBg}>
@@ -715,7 +745,120 @@ const styles = StyleSheet.create({
         color: COLORS.primary,
     },
 
-    // Your Turn Container
+    // Task Container - The distinct zone
+    taskContainer: {
+        backgroundColor: COLORS.surfaceElevated,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.sm,
+    },
+    taskCardWrapper: {
+        marginBottom: SPACING.xs,
+    },
+    // Reference-style cards (matching the design images)
+    referenceCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.surface,
+        borderRadius: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        marginBottom: SPACING.sm,
+        borderLeftWidth: 4,
+        // Shadow for depth
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    circularBadge: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 14,
+    },
+    circularBadgeEmoji: {
+        fontSize: 26,
+    },
+    referenceCardTitle: {
+        flex: 1,
+        fontSize: 17,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    // Legacy styles kept for compatibility
+    nestedTaskCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.surface,
+        borderRadius: BORDER_RADIUS.lg,
+        paddingVertical: SPACING.md,
+        paddingHorizontal: SPACING.md,
+        borderLeftWidth: 3,
+        // Subtle shadow for depth
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    emojiBadge: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: SPACING.md,
+    },
+    emojiBadgeText: {
+        fontSize: 24,
+    },
+    nestedTaskContent: {
+        flex: 1,
+    },
+    nestedTaskName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
+    },
+    nestedTaskMeta: {
+        fontSize: 13,
+        color: COLORS.textSecondary,
+    },
+    completeButton: {
+        padding: SPACING.xs,
+    },
+    completeCircle: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        borderWidth: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyContainer: {
+        alignItems: 'center',
+        paddingVertical: SPACING.xl,
+    },
+    emptyIcon: {
+        fontSize: 40,
+        marginBottom: SPACING.sm,
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 4,
+    },
+    emptyDesc: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+    },
+
+    // Legacy - keeping for other parts
     yourTurnContainer: {
         backgroundColor: COLORS.gray900,
         borderRadius: BORDER_RADIUS.lg,
@@ -841,7 +984,7 @@ const styles = StyleSheet.create({
     },
     activityChore: {
         fontWeight: '600',
-        color: COLORS.textPrimary,
+        color: COLORS.primary,  // Blue to match expanded view
     },
     activityTime: {
         fontSize: FONT_SIZE.xs,
@@ -861,6 +1004,40 @@ const styles = StyleSheet.create({
     activityIconNudge: {
         backgroundColor: COLORS.primary + '20',
     },
+    expandButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    expandButtonBottom: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: SPACING.md,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.gray800,
+    },
+    expandButtonText: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.primary,
+    },
+    calendarButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: SPACING.sm,
+        paddingVertical: SPACING.md,
+        marginTop: SPACING.xs,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.gray800,
+    },
+    calendarButtonText: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.primary,
+    },
 
     // Fairness
     fairnessCard: {
@@ -879,12 +1056,13 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: SPACING.sm,
-        width: 80,
+        width: 100,
     },
     fairnessName: {
         fontSize: FONT_SIZE.sm,
         fontWeight: '600',
         color: COLORS.textPrimary,
+        flex: 1,
     },
     fairnessBarContainer: {
         flex: 1,
@@ -1151,6 +1329,268 @@ const styles = StyleSheet.create({
     activityActionText: {
         fontSize: FONT_SIZE.md,
         fontWeight: '600',
+        color: COLORS.primary,
+    },
+    // Emoji Task Cards
+    emojiTaskCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: SPACING.md,
+        paddingHorizontal: SPACING.md,
+        borderRadius: BORDER_RADIUS.lg,
+        marginBottom: SPACING.xs,
+    },
+    taskCardEmoji: {
+        fontSize: 28,
+        marginRight: SPACING.md,
+    },
+    taskCardContent: {
+        flex: 1,
+    },
+    taskCardName: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
+    },
+    taskCardDue: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '500',
+    },
+    taskCardComplete: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        borderWidth: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.1)',
+    },
+
+    // House Status Section
+    houseStatusCard: {
+        borderRadius: BORDER_RADIUS.xl,
+        overflow: 'hidden',
+    },
+    houseStatusGradient: {
+        padding: SPACING.lg,
+    },
+    houseStatusTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    houseStatusEmoji: {
+        fontSize: 40,
+        marginRight: SPACING.md,
+    },
+    houseStatusText: {
+        flex: 1,
+    },
+    houseStatusTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
+    },
+    houseStatusSubtitle: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+    },
+    houseStatusArrow: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: COLORS.surfaceElevated,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    houseStatusDivider: {
+        height: 1,
+        backgroundColor: COLORS.gray700,
+        marginVertical: SPACING.md,
+    },
+    houseStatsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+    },
+    houseStat: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    houseStatNumber: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    houseStatLabel: {
+        fontSize: 12,
+        color: COLORS.textTertiary,
+        marginTop: 2,
+    },
+    houseStatDividerVertical: {
+        width: 1,
+        height: 32,
+        backgroundColor: COLORS.gray700,
+    },
+
+    // =====================================================
+    // iOS NATIVE DARK MODE STYLES
+    // =====================================================
+
+    iosSection: {
+        marginBottom: SPACING.xl,
+    },
+    iosSectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.md,
+    },
+    iosTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    iosSectionTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        letterSpacing: -0.3,
+    },
+    iosBadgePill: {
+        minWidth: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: COLORS.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+    },
+    iosBadgeNumber: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: COLORS.white,
+    },
+    iosBadgeText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+
+    // Empty state
+    iosEmptyState: {
+        alignItems: 'center',
+        paddingVertical: SPACING.xl + SPACING.lg,
+        backgroundColor: COLORS.surface,
+        borderRadius: 16,
+    },
+    iosEmptyIconWrap: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: COLORS.surfaceElevated,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: SPACING.md,
+    },
+    iosEmptyEmoji: {
+        fontSize: 36,
+    },
+    iosEmptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 4,
+    },
+    iosEmptySubtitle: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+    },
+
+    // Card stack - grouped cards like iOS Settings
+    iosCardStack: {
+        backgroundColor: COLORS.surface,
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
+    iosTaskCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderBottomWidth: 0.5,
+        borderBottomColor: COLORS.gray700,
+    },
+    iosTaskCardFirst: {
+        // First card in stack
+    },
+    iosTaskCardLast: {
+        borderBottomWidth: 0,
+    },
+    iosTaskIconWrap: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 14,
+    },
+    iosTaskEmoji: {
+        fontSize: 24,
+    },
+    iosTaskContent: {
+        flex: 1,
+    },
+    iosTaskTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    iosTaskTitle: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: COLORS.textPrimary,
+    },
+    iosUrgentDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: COLORS.accent,
+    },
+    iosTaskMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginTop: 3,
+    },
+    iosTaskMeta: {
+        fontSize: 12,
+        color: COLORS.textTertiary,
+    },
+    iosTaskMetaDot: {
+        fontSize: 12,
+        color: COLORS.textTertiary,
+        marginHorizontal: 2,
+    },
+    iosDoneButton: {
+        padding: 8,
+    },
+    iosDoneCircle: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        borderWidth: 2,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    iosTaskAction: {
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+    },
+    iosTaskActionText: {
+        fontSize: 15,
+        fontWeight: '500',
         color: COLORS.primary,
     },
 });

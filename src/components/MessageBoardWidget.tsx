@@ -1,19 +1,34 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
-import { Avatar } from './Avatar';
 import { useNavigation } from '@react-navigation/native';
-
-// TODO: Connect to real message board store once migrated to Supabase
-// For now, show empty state
-const ALL_POSTS: any[] = [];
+import { useBoardStore } from '../stores/useBoardStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { formatDistanceToNow } from 'date-fns';
 
 export const MessageBoardWidget = () => {
     const navigation = useNavigation();
+    const { posts, fetchPosts } = useBoardStore();
+    const { household } = useHouseholdStore();
+
+    // Fetch posts on mount if we have a household
+    useEffect(() => {
+        if (household?.id) {
+            fetchPosts(household.id);
+        }
+    }, [household?.id]);
+
+    const formatTime = (date: Date) => {
+        try {
+            return formatDistanceToNow(date, { addSuffix: false });
+        } catch {
+            return 'now';
+        }
+    };
 
     // Empty state when no posts
-    if (ALL_POSTS.length === 0) {
+    if (posts.length === 0) {
         return (
             <View style={styles.container}>
                 <TouchableOpacity
@@ -36,7 +51,7 @@ export const MessageBoardWidget = () => {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
             >
-                {ALL_POSTS.map((post) => (
+                {posts.slice(0, 5).map((post) => (
                     <TouchableOpacity
                         key={post.id}
                         style={[
@@ -73,11 +88,23 @@ export const MessageBoardWidget = () => {
                                 <Text style={styles.smallAvatarText}>{post.author.name.charAt(0)}</Text>
                             </View>
                             <Text style={[styles.footerText, post.isPinned && styles.pinnedFooterText]}>
-                                {post.time}
+                                {formatTime(post.createdAt)}
                             </Text>
                         </View>
                     </TouchableOpacity>
                 ))}
+
+                {/* View All Card */}
+                {posts.length > 3 && (
+                    <TouchableOpacity
+                        style={styles.viewAllCard}
+                        onPress={() => navigation.navigate('HouseBoard' as never)}
+                        activeOpacity={0.9}
+                    >
+                        <Feather name="arrow-right" size={20} color={COLORS.primary} />
+                        <Text style={styles.viewAllText}>View All</Text>
+                    </TouchableOpacity>
+                )}
             </ScrollView>
         </View>
     );
@@ -194,5 +221,22 @@ const styles = StyleSheet.create({
     emptySubtext: {
         fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
+    },
+    viewAllCard: {
+        width: 80,
+        minHeight: 110,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.md,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: SPACING.xs,
+    },
+    viewAllText: {
+        fontSize: FONT_SIZE.xs,
+        fontWeight: '600',
+        color: COLORS.primary,
     },
 });

@@ -19,7 +19,9 @@ import {
   HouseholdSetupScreen,
   SignInScreen,
   HouseholdPreviewScreen,
+  NeedsAttentionScreen,
 } from './src/screens';
+import { ChoresCalmScreen } from './src/screens/ChoresCalmScreen';
 import { ActivityHistoryScreen } from './src/screens/ActivityHistoryScreen';
 import { useAuthStore } from './src/stores/useAuthStore';
 import { useHouseholdStore } from './src/stores/useHouseholdStore';
@@ -56,8 +58,22 @@ function DashboardStack() {
 function ChoresStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="ChoresMain" component={HouseholdScreen} />
+      <Stack.Screen name="ChoresMain" component={ChoresCalmScreen} />
+      <Stack.Screen name="ChoresOld" component={HouseholdScreen} />
+      <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
+      <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function OldStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="OldMain" component={HouseholdScreen} />
+      <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
+      <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
+      <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
     </Stack.Navigator>
   );
 }
@@ -96,7 +112,7 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardStack} />
-      <Tab.Screen name="Chores" component={ChoresStack} />
+      <Tab.Screen name="Chores" component={OldStack} />
       <Tab.Screen name="Expenses" component={ExpensesScreen} />
       <Tab.Screen name="Settings" component={ProfileScreen} />
     </Tab.Navigator>

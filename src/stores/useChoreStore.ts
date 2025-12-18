@@ -22,6 +22,7 @@ interface ChoreState {
   getOverdueAssignments: (userId: string) => ChoreAssignment[];
   getLeaderboard: () => LeaderboardEntry[];
   getChoreById: (choreId: string) => Chore | undefined;
+  seedTestChores: (householdId: string, memberIds: string[]) => Promise<void>;
   clearError: () => void;
 }
 
@@ -282,6 +283,73 @@ export const useChoreStore = create<ChoreState>()(
 
       getChoreById: (choreId: string) => {
         return get().chores.find(c => c.id === choreId);
+      },
+
+      // ========================================================================
+      // SEED TEST CHORES (Dev/Demo Helper)
+      // ========================================================================
+      seedTestChores: async (householdId: string, memberIds: string[]) => {
+        set({ isLoading: true, error: null });
+        try {
+          // Default test chores
+          const testChores = [
+            { name: 'Do dishes', description: 'Wash dishes or load/unload dishwasher', icon: 'coffee', room: 'kitchen', frequency: 'daily', point_value: 2 },
+            { name: 'Take out trash', description: 'Empty all bins and take to curb', icon: 'trash-2', room: 'other', frequency: 'weekly', point_value: 3 },
+            { name: 'Clean bathroom', description: 'Scrub toilet, sink, and shower', icon: 'droplet', room: 'bathroom', frequency: 'weekly', point_value: 5 },
+            { name: 'Vacuum living room', description: 'Vacuum living room and hallways', icon: 'wind', room: 'living_room', frequency: 'weekly', point_value: 4 },
+            { name: 'Mop floors', description: 'Mop kitchen and bathroom floors', icon: 'home', room: 'kitchen', frequency: 'weekly', point_value: 4 },
+            { name: 'Wipe counters', description: 'Clean kitchen counters and stovetop', icon: 'layout', room: 'kitchen', frequency: 'daily', point_value: 2 },
+          ];
+
+          // Insert chores
+          const { data: insertedChores, error: choreError } = await supabase
+            .from('chores')
+            .insert(testChores.map(c => ({
+              household_id: householdId,
+              name: c.name,
+              description: c.description,
+              icon: c.icon,
+              room: c.room,
+              frequency: c.frequency,
+              point_value: c.point_value,
+              is_active: true,
+            })))
+            .select();
+
+          if (choreError) throw choreError;
+
+          // Create assignments for each chore, distributed among members
+          const now = new Date();
+          const assignments = (insertedChores || []).map((chore, idx) => {
+            const assignedMember = memberIds[idx % memberIds.length];
+            // Vary due dates: some today, some past (to trigger Lingering)
+            const daysAgo = idx % 3 === 0 ? 2 : (idx % 3 === 1 ? 0 : 1);
+            const dueDate = new Date(now);
+            dueDate.setDate(dueDate.getDate() - daysAgo);
+
+            return {
+              chore_id: chore.id,
+              assigned_to: assignedMember,
+              due_date: dueDate.toISOString().split('T')[0],
+            };
+          });
+
+          const { error: assignmentError } = await supabase
+            .from('chore_assignments')
+            .insert(assignments);
+
+          if (assignmentError) throw assignmentError;
+
+          // Refresh data
+          await get().fetchChores(householdId);
+          await get().fetchAssignments(householdId);
+
+          console.log('[ChoreStore] Test data seeded successfully');
+          set({ isLoading: false });
+        } catch (error: any) {
+          console.error('[ChoreStore] seedTestChores error:', error);
+          set({ error: error.message, isLoading: false });
+        }
       },
 
       clearError: () => set({ error: null }),

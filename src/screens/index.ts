@@ -14,3 +14,4 @@ export { HouseholdChoiceScreen } from './HouseholdChoiceScreen';
 export { HouseholdSetupScreen } from './HouseholdSetupScreen';
 export { SignInScreen } from './SignInScreen';
 export { HouseholdPreviewScreen } from './HouseholdPreviewScreen';
+export { NeedsAttentionScreen } from './NeedsAttentionScreen';

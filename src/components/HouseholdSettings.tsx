@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Modal, TextInput, Platform, Share, TouchableWithoutFeedback, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Modal, TextInput, Platform, Share, TouchableWithoutFeedback, Pressable, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons'
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, GRADIENTS } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,7 +12,7 @@ const HOUSE_EMOJIS = ['🏠', '🏡', '🏢', '🏘️', '🏰', '🛖', '🏗�
 
 export const HouseholdSettings = () => {
     // Real data from stores
-    const { household, members, memberships, essentials, updateHousehold, upsertEssential } = useHouseholdStore();
+    const { household, members, memberships, essentials, updateHousehold, upsertEssential, promoteMember, removeMember, deleteHousehold } = useHouseholdStore();
     const { user } = useAuthStore();
 
     const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
@@ -96,11 +96,76 @@ export const HouseholdSettings = () => {
         setIsEssentialsModalVisible(true);
     };
 
-    const handleMemberAction = (action: string) => {
-        console.log(`Action ${action} on ${selectedMember?.name}`);
+    const handleMemberAction = async (action: string) => {
+        if (!selectedMember) return;
+
+        if (action === 'promote') {
+            const confirmPromote = () => {
+                promoteMember(selectedMember.id);
+            };
+            if (Platform.OS === 'web') {
+                if (window.confirm(`Promote ${selectedMember.name} to Admin?`)) {
+                    confirmPromote();
+                }
+            } else {
+                Alert.alert(
+                    'Promote to Admin',
+                    `Are you sure you want to make ${selectedMember.name} an admin? Admins can manage members and settings.`,
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Promote', onPress: confirmPromote },
+                    ]
+                );
+            }
+        } else if (action === 'remove') {
+            const confirmRemove = () => {
+                removeMember(selectedMember.id);
+            };
+            if (Platform.OS === 'web') {
+                if (window.confirm(`Remove ${selectedMember.name} from the household?`)) {
+                    confirmRemove();
+                }
+            } else {
+                Alert.alert(
+                    'Remove Member',
+                    `Are you sure you want to remove ${selectedMember.name} from the household? They can rejoin with the invite code.`,
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Remove', style: 'destructive', onPress: confirmRemove },
+                    ]
+                );
+            }
+        } else if (action === 'nudge') {
+            console.log(`Nudge ${selectedMember.name}`);
+            // TODO: Implement nudge functionality
+        }
+
         setIsMemberMenuVisible(false);
         setSelectedMember(null);
     };
+
+    const handleDeleteHousehold = () => {
+        const confirmDelete = () => {
+            deleteHousehold();
+        };
+        if (Platform.OS === 'web') {
+            if (window.confirm('Are you sure you want to DELETE this household? This will remove all members, chores, and data. This cannot be undone!')) {
+                confirmDelete();
+            }
+        } else {
+            Alert.alert(
+                'Delete Household',
+                'Are you sure you want to DELETE this household? This will remove all members, chores, and data. This cannot be undone!',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete Forever', style: 'destructive', onPress: confirmDelete },
+                ]
+            );
+        }
+    };
+
+    // Check if current user is admin
+    const isCurrentUserAdmin = memberships.find(m => m.userId === user?.id)?.role === 'admin';
 
     // Get member role from memberships
     const getMemberRole = (userId: string): string => {
@@ -322,6 +387,32 @@ export const HouseholdSettings = () => {
                     </View>
                 </View>
             </View>
+
+            {/* Danger Zone - Admin Only */}
+            {isCurrentUserAdmin && (
+                <View style={styles.section}>
+                    <Text style={[styles.sectionTitle, { color: COLORS.error }]}>Danger Zone</Text>
+                    <View style={[styles.card, { borderColor: COLORS.error + '40' }]}>
+                        <View style={styles.settingRow}>
+                            <View style={styles.settingInfo}>
+                                <View style={styles.settingHeader}>
+                                    <Feather name="trash-2" size={18} color={COLORS.error} />
+                                    <Text style={[styles.settingLabel, { color: COLORS.error }]}>Delete Household</Text>
+                                </View>
+                                <Text style={styles.settingDescription}>
+                                    Permanently delete this household, all members, chores, and data. This cannot be undone.
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.dangerButton}
+                                onPress={handleDeleteHousehold}
+                            >
+                                <Text style={styles.dangerButtonText}>Delete</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            )}
 
             <View style={{ height: 100 }} />
 
@@ -849,5 +940,16 @@ const styles = StyleSheet.create({
     },
     emojiPickerText: {
         fontSize: 24,
+    },
+    dangerButton: {
+        backgroundColor: COLORS.error,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.sm,
+        borderRadius: BORDER_RADIUS.md,
+    },
+    dangerButtonText: {
+        color: COLORS.white,
+        fontWeight: '600',
+        fontSize: FONT_SIZE.sm,
     },
 });

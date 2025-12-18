@@ -1,27 +1,24 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Image, Platform } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { format, startOfWeek, addDays, isSameDay, formatDistanceToNow, isToday, isPast, differenceInDays } from 'date-fns';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
-import { Chore, User, NudgeTone } from '../types';
+import { Chore, ChoreAssignment, User, NudgeTone } from '../types';
 import { Avatar } from './Avatar';
+import { useChoreStore } from '../stores/useChoreStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
 
 interface TaskDetailModalProps {
     visible: boolean;
     onClose: () => void;
     task: Chore | null;
+    assignment?: ChoreAssignment | null;
     currentUser: User;
     onEdit: (task: Chore) => void;
     onMarkDone: (task: Chore) => void;
     onNudge: (task: Chore, tone: NudgeTone) => void;
     onSnitch: (task: Chore, tone: NudgeTone) => void;
 }
-
-// Mock Leaderboard Data
-const MOCK_LEADERBOARD = [
-    { id: 'u1', name: 'Alex', count: 12, avatarColor: '#818CF8' },
-    { id: 'u2', name: 'Sam', count: 8, avatarColor: '#34D399' },
-    { id: 'u3', name: 'Jordan', count: 3, avatarColor: '#F472B6' },
-];
 
 const TONES: { id: NudgeTone; label: string; icon: string }[] = [
     { id: 'polite', label: 'Polite', icon: '🥺' },
@@ -34,6 +31,7 @@ export const TaskDetailModal = ({
     visible,
     onClose,
     task,
+    assignment,
     currentUser,
     onEdit,
     onMarkDone,
@@ -42,13 +40,115 @@ export const TaskDetailModal = ({
 }: TaskDetailModalProps) => {
     const [nudgeMode, setNudgeMode] = useState<'nudge' | 'snitch' | null>(null);
 
-    if (!task) return null;
+    const { assignments, chores, completeChore } = useChoreStore();
+    const { members } = useHouseholdStore();
 
-    // Mock Assignee Logic (Random for now if not set)
-    const assignee = MOCK_LEADERBOARD[0];
-    const isAssignedToMe = assignee.id === currentUser.id;
+    // ==========================================================================
+    // DERIVED DATA
+    // ==========================================================================
+
+    const getMemberInfo = (userId: string) => {
+        if (userId === currentUser.id) {
+            return {
+                id: userId,
+                name: currentUser.name || currentUser.email?.split('@')[0] || 'You',
+                avatarColor: currentUser.avatarColor || COLORS.primary,
+            };
+        }
+        const member = members.find(m => m.id === userId);
+        return {
+            id: userId,
+            name: member?.name || 'Unknown',
+            avatarColor: member?.avatarColor || COLORS.gray500,
+        };
+    };
+
+    const currentAssignment = useMemo(() => {
+        if (assignment) return assignment;
+        if (!task) return null;
+        return assignments.find(a => a.choreId === task.id && !a.completedAt) || null;
+    }, [assignment, task, assignments]);
+
+    const assignee = useMemo(() => {
+        if (!currentAssignment) return null;
+        return getMemberInfo(currentAssignment.assignedTo);
+    }, [currentAssignment, members, currentUser]);
+
+    const isAssignedToMe = currentAssignment?.assignedTo === currentUser.id;
+
+    // Due date formatting
+    const dueInfo = useMemo(() => {
+        if (!currentAssignment) return null;
+        const dueDate = new Date(currentAssignment.dueDate);
+        const isPastDue = isPast(dueDate) && !isToday(dueDate);
+        const daysUntil = differenceInDays(dueDate, new Date());
+
+        let text = '';
+        let isUrgent = false;
+
+        if (isPastDue) {
+            const daysOverdue = Math.abs(daysUntil);
+            text = daysOverdue === 1 ? 'Due yesterday' : `${daysOverdue} days overdue`;
+            isUrgent = true;
+        } else if (isToday(dueDate)) {
+            text = 'Due today';
+            isUrgent = true;
+        } else if (daysUntil === 1) {
+            text = 'Due tomorrow';
+        } else if (daysUntil <= 7) {
+            text = `Due ${format(dueDate, 'EEEE')}`;
+        } else {
+            text = `Due ${format(dueDate, 'MMM d')}`;
+        }
+
+        return { text, isUrgent, date: dueDate };
+    }, [currentAssignment]);
+
+    // Is this a personal or shared task?
+    const isPersonalTask = useMemo(() => {
+        if (!task) return false;
+        // Check if "personal" or "laundry" (typically personal)
+        const name = task.name.toLowerCase();
+        return name.includes('personal') || name.includes('laundry') || name.includes('room');
+    }, [task]);
+
+    // History
+    const choreHistory = useMemo(() => {
+        if (!task) return [];
+        return assignments
+            .filter(a => a.choreId === task.id && a.completedAt)
+            .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())
+            .slice(0, 10)
+            .map(a => ({
+                ...a,
+                completedByInfo: getMemberInfo(a.completedBy || a.assignedTo),
+            }));
+    }, [task, assignments, members, currentUser]);
+
+    const lastCompletion = choreHistory[0] || null;
+
+    // Week calendar
+    const weekCalendar = useMemo(() => {
+        const today = new Date();
+        const weekStart = startOfWeek(today);
+        const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+        return days.map((label, index) => {
+            const date = addDays(weekStart, index);
+            const isCurrentDay = isSameDay(date, today);
+            const wasCompleted = choreHistory.some(h =>
+                h.completedAt && isSameDay(new Date(h.completedAt), date)
+            );
+            return { label, date, isToday: isCurrentDay, wasCompleted };
+        });
+    }, [choreHistory]);
+
+    // ==========================================================================
+    // HANDLERS
+    // ==========================================================================
 
     const handleToneSelect = (tone: NudgeTone) => {
+        if (!task) return;
         if (nudgeMode === 'nudge') {
             onNudge(task, tone);
         } else if (nudgeMode === 'snitch') {
@@ -57,10 +157,34 @@ export const TaskDetailModal = ({
         setNudgeMode(null);
     };
 
+    const handleTakeOver = () => {
+        if (!task || !currentAssignment) return;
+        Alert.alert(
+            'Take Over Task',
+            `Complete "${task.name}" and earn credit for doing someone else's task?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Take Over',
+                    onPress: () => {
+                        completeChore(currentAssignment.id, currentUser.id);
+                        onClose();
+                    }
+                }
+            ]
+        );
+    };
+
     const handleClose = () => {
         setNudgeMode(null);
         onClose();
     };
+
+    // ==========================================================================
+    // RENDER
+    // ==========================================================================
+
+    if (!task) return null;
 
     return (
         <Modal
@@ -97,25 +221,52 @@ export const TaskDetailModal = ({
                         <Text style={styles.taskName}>{task.name}</Text>
                         <Text style={styles.roomName}>{task.room?.replace('_', ' ')} • {task.frequency}</Text>
 
-                        <View style={styles.pointsBadge}>
-                            <Text style={styles.pointsText}>{task.pointValue} Points</Text>
+                        {/* Personal/Shared Badge */}
+                        <View style={[styles.typeBadge, isPersonalTask ? styles.personalBadge : styles.sharedBadge]}>
+                            <Feather
+                                name={isPersonalTask ? 'user' : 'users'}
+                                size={12}
+                                color={isPersonalTask ? COLORS.warning : COLORS.primary}
+                            />
+                            <Text style={[styles.typeText, isPersonalTask ? styles.personalText : styles.sharedText]}>
+                                {isPersonalTask ? 'Personal' : 'Shared'}
+                            </Text>
                         </View>
                     </View>
 
-                    {/* Assignee Card */}
+                    {/* Current Turn Card */}
                     <View style={styles.assigneeCard}>
-                        <Text style={styles.sectionTitle}>Current Turn</Text>
-                        <View style={styles.assigneeRow}>
-                            <View style={styles.assigneeInfo}>
-                                <Avatar name={assignee.name} size="md" color={assignee.avatarColor || COLORS.primary} />
-                                <View>
-                                    <Text style={styles.assigneeName}>{assignee.name}</Text>
-                                    <Text style={styles.assigneeStatus}>
-                                        {isAssignedToMe ? "It's your turn!" : "Assigned to Alex"}
+                        <Text style={styles.sectionTitleCentered}>Current Turn</Text>
+
+                        <View style={styles.assigneeCentered}>
+                            {assignee ? (
+                                <>
+                                    <Avatar name={assignee.name} size="lg" color={assignee.avatarColor} />
+                                    <Text style={styles.assigneeNameCentered}>{assignee.name}</Text>
+                                    <Text style={styles.assigneeStatusCentered}>
+                                        {isAssignedToMe ? "It's your turn!" : `${assignee.name}'s turn`}
                                     </Text>
-                                </View>
-                            </View>
+                                </>
+                            ) : (
+                                <>
+                                    <View style={styles.noAssigneePlaceholder}>
+                                        <Feather name="user" size={24} color={COLORS.textTertiary} />
+                                    </View>
+                                    <Text style={styles.assigneeNameCentered}>Unassigned</Text>
+                                    <Text style={styles.assigneeStatusCentered}>This task needs an assignee</Text>
+                                </>
+                            )}
                         </View>
+
+                        {/* Due Date */}
+                        {dueInfo && (
+                            <View style={[styles.dueBadge, dueInfo.isUrgent && styles.dueBadgeUrgent]}>
+                                <Feather name="clock" size={14} color={dueInfo.isUrgent ? COLORS.error : COLORS.textSecondary} />
+                                <Text style={[styles.dueText, dueInfo.isUrgent && styles.dueTextUrgent]}>
+                                    {dueInfo.text}
+                                </Text>
+                            </View>
+                        )}
 
                         {/* Primary Actions */}
                         <View style={styles.actionRow}>
@@ -150,59 +301,53 @@ export const TaskDetailModal = ({
                                     <TouchableOpacity style={styles.nudgeButton} onPress={() => setNudgeMode('nudge')}>
                                         <Text style={styles.nudgeButtonText}>👋 Nudge</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.snitchButton} onPress={() => setNudgeMode('snitch')}>
-                                        <Text style={styles.snitchButtonText}>🚨 Snitch</Text>
+                                    <TouchableOpacity style={styles.takeOverButton} onPress={handleTakeOver}>
+                                        <Feather name="arrow-right-circle" size={16} color={COLORS.success} />
+                                        <Text style={styles.takeOverButtonText}>Take Over</Text>
                                     </TouchableOpacity>
                                 </>
                             )}
                         </View>
                     </View>
 
-                    {/* History (Moved Up) */}
+                    {/* History Section */}
                     <View style={styles.statsSection}>
                         <Text style={styles.sectionTitle}>History</Text>
                         <View style={styles.historyCard}>
-                            <View style={styles.historyHeader}>
-                                <View>
-                                    <Text style={styles.historyDate}>Yesterday</Text>
-                                    <Text style={styles.historyAction}>Completed by Alex</Text>
-                                </View>
-                                <View style={styles.historyCalendar}>
-                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                                        <View key={i} style={[
-                                            styles.historyDay,
-                                            (i === 2 || i === 5) && styles.historyDayCompleted, // Mock data
-                                            i === 6 && styles.historyDayToday
-                                        ]}>
-                                            <Text style={[
-                                                styles.historyDayText,
-                                                (i === 2 || i === 5) && styles.historyDayTextCompleted
-                                            ]}>{day}</Text>
-                                        </View>
-                                    ))}
-                                </View>
+                            {/* Last completion info */}
+                            <View style={styles.historyTop}>
+                                {lastCompletion ? (
+                                    <>
+                                        <Text style={styles.historyDate}>
+                                            {formatDistanceToNow(new Date(lastCompletion.completedAt!), { addSuffix: true })}
+                                        </Text>
+                                        <Text style={styles.historyAction}>
+                                            Completed by {lastCompletion.completedByInfo.name}
+                                        </Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.historyDate}>No history yet</Text>
+                                        <Text style={styles.historyAction}>Be the first to complete this!</Text>
+                                    </>
+                                )}
                             </View>
-                        </View>
-                    </View>
 
-                    {/* Leaderboard (Moved Down) */}
-                    <View style={styles.statsSection}>
-                        <Text style={styles.sectionTitle}>Leaderboard</Text>
-                        <View style={styles.leaderboardCard}>
-                            {MOCK_LEADERBOARD.map((user, index) => (
-                                <View key={user.id} style={styles.leaderboardRow}>
-                                    <View style={styles.rankContainer}>
-                                        <Text style={styles.rankText}>#{index + 1}</Text>
+                            {/* Week calendar - fixed overflow */}
+                            <View style={styles.historyCalendarContainer}>
+                                {weekCalendar.map((day, i) => (
+                                    <View key={i} style={[
+                                        styles.historyDay,
+                                        day.wasCompleted && styles.historyDayCompleted,
+                                        day.isToday && styles.historyDayToday
+                                    ]}>
+                                        <Text style={[
+                                            styles.historyDayText,
+                                            day.wasCompleted && styles.historyDayTextCompleted
+                                        ]}>{day.label}</Text>
                                     </View>
-                                    <View style={styles.leaderboardUser}>
-                                        <Avatar name={user.name} size="sm" color={user.avatarColor} />
-                                        <Text style={styles.leaderboardName}>{user.name}</Text>
-                                    </View>
-                                    <View style={styles.countBadge}>
-                                        <Text style={styles.countText}>{user.count}</Text>
-                                    </View>
-                                </View>
-                            ))}
+                                ))}
+                            </View>
                         </View>
                     </View>
 
@@ -222,7 +367,7 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.gray900,
         borderTopLeftRadius: BORDER_RADIUS.xl,
         borderTopRightRadius: BORDER_RADIUS.xl,
-        height: '92%',
+        height: '85%',
         marginTop: 'auto',
         ...SHADOWS.lg,
     },
@@ -249,13 +394,15 @@ const styles = StyleSheet.create({
     content: {
         padding: SPACING.lg,
     },
+
+    // Hero
     hero: {
         alignItems: 'center',
         marginBottom: SPACING.xl,
     },
     iconContainer: {
-        width: 80,
-        height: 80,
+        width: 72,
+        height: 72,
         borderRadius: BORDER_RADIUS.xl,
         justifyContent: 'center',
         alignItems: 'center',
@@ -266,32 +413,59 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: COLORS.textPrimary,
         marginBottom: 4,
+        textAlign: 'center',
     },
     roomName: {
         fontSize: FONT_SIZE.md,
         color: COLORS.textSecondary,
         textTransform: 'capitalize',
-        marginBottom: SPACING.md,
+        marginBottom: SPACING.sm,
     },
-    pointsBadge: {
-        backgroundColor: COLORS.primary + '20',
-        paddingHorizontal: SPACING.md,
-        paddingVertical: 6,
+    typeBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: SPACING.sm,
+        paddingVertical: 4,
         borderRadius: BORDER_RADIUS.full,
     },
-    pointsText: {
-        color: COLORS.primary,
-        fontWeight: '700',
-        fontSize: FONT_SIZE.sm,
+    personalBadge: {
+        backgroundColor: 'rgba(251, 191, 36, 0.15)',
     },
-    sectionTitle: {
-        fontSize: FONT_SIZE.md,
+    sharedBadge: {
+        backgroundColor: 'rgba(129, 140, 248, 0.15)',
+    },
+    typeText: {
+        fontSize: FONT_SIZE.xs,
         fontWeight: '600',
-        color: COLORS.textSecondary,
+    },
+    personalText: {
+        color: COLORS.warning,
+    },
+    sharedText: {
+        color: COLORS.primary,
+    },
+
+    // Section title
+    sectionTitle: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.textTertiary,
         marginBottom: SPACING.md,
         textTransform: 'uppercase',
         letterSpacing: 1,
     },
+    sectionTitleCentered: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.textTertiary,
+        marginBottom: SPACING.md,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        textAlign: 'center',
+    },
+
+    // Assignee Card - Centered
     assigneeCard: {
         backgroundColor: COLORS.gray800,
         padding: SPACING.lg,
@@ -300,28 +474,59 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: COLORS.gray700,
     },
-    assigneeRow: {
-        flexDirection: 'row',
+    assigneeCentered: {
         alignItems: 'center',
-        marginBottom: SPACING.lg,
+        marginBottom: SPACING.md,
     },
-    assigneeInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.md,
-    },
-    assigneeName: {
+    assigneeNameCentered: {
         fontSize: FONT_SIZE.lg,
         fontWeight: '700',
         color: COLORS.textPrimary,
+        marginTop: SPACING.sm,
     },
-    assigneeStatus: {
+    assigneeStatusCentered: {
         fontSize: FONT_SIZE.sm,
         color: COLORS.textSecondary,
+        marginTop: 2,
     },
+    noAssigneePlaceholder: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: COLORS.gray700,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    // Due Badge
+    dueBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.xs,
+        borderRadius: BORDER_RADIUS.full,
+        marginBottom: SPACING.lg,
+        alignSelf: 'center',
+    },
+    dueBadgeUrgent: {
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    },
+    dueText: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '500',
+        color: COLORS.textSecondary,
+    },
+    dueTextUrgent: {
+        color: COLORS.error,
+    },
+
+    // Actions
     actionRow: {
         flexDirection: 'row',
-        gap: SPACING.md,
+        gap: SPACING.sm,
     },
     doneButton: {
         flex: 1,
@@ -350,72 +555,36 @@ const styles = StyleSheet.create({
         color: COLORS.white,
         fontWeight: '600',
     },
-    snitchButton: {
+    takeOverButton: {
         flex: 1,
-        backgroundColor: COLORS.error + '20',
+        backgroundColor: 'rgba(52, 211, 153, 0.15)',
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         padding: SPACING.md,
         borderRadius: BORDER_RADIUS.lg,
+        gap: 6,
         borderWidth: 1,
-        borderColor: COLORS.error + '50',
+        borderColor: 'rgba(52, 211, 153, 0.3)',
     },
-    snitchButtonText: {
-        color: COLORS.error,
+    takeOverButtonText: {
+        color: COLORS.success,
         fontWeight: '600',
     },
+
+    // Stats Section
     statsSection: {
         marginBottom: SPACING.xl,
     },
-    leaderboardCard: {
-        backgroundColor: COLORS.gray800,
-        borderRadius: BORDER_RADIUS.xl,
-        overflow: 'hidden',
-    },
-    leaderboardRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: SPACING.md,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.gray700,
-    },
-    rankContainer: {
-        width: 30,
-    },
-    rankText: {
-        color: COLORS.textSecondary,
-        fontWeight: '700',
-    },
-    leaderboardUser: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.md,
-    },
-    leaderboardName: {
-        color: COLORS.textPrimary,
-        fontWeight: '600',
-    },
-    countBadge: {
-        backgroundColor: COLORS.gray700,
-        paddingHorizontal: SPACING.sm,
-        paddingVertical: 2,
-        borderRadius: BORDER_RADIUS.sm,
-    },
-    countText: {
-        color: COLORS.white,
-        fontWeight: '700',
-        fontSize: FONT_SIZE.sm,
-    },
+
+    // History Card - Fixed overflow
     historyCard: {
         backgroundColor: COLORS.gray800,
         borderRadius: BORDER_RADIUS.xl,
         padding: SPACING.md,
     },
-    historyHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+    historyTop: {
+        marginBottom: SPACING.md,
     },
     historyDate: {
         color: COLORS.textSecondary,
@@ -427,13 +596,16 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: FONT_SIZE.md,
     },
-    historyCalendar: {
+    historyCalendarContainer: {
         flexDirection: 'row',
-        gap: 4,
+        justifyContent: 'space-between',
+        paddingTop: SPACING.sm,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255, 255, 255, 0.05)',
     },
     historyDay: {
-        width: 24,
-        height: 24,
+        width: 32,
+        height: 32,
         borderRadius: BORDER_RADIUS.full,
         backgroundColor: COLORS.gray700,
         justifyContent: 'center',
@@ -443,17 +615,19 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.success,
     },
     historyDayToday: {
-        borderWidth: 1,
+        borderWidth: 2,
         borderColor: COLORS.primary,
     },
     historyDayText: {
-        fontSize: 10,
+        fontSize: 11,
         color: COLORS.textSecondary,
         fontWeight: '600',
     },
     historyDayTextCompleted: {
         color: COLORS.white,
     },
+
+    // Tone selection
     toneContainer: {
         flex: 1,
         alignItems: 'center',
@@ -466,7 +640,7 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     toneScroll: {
-        gap: SPACING.md,
+        gap: SPACING.sm,
         paddingBottom: SPACING.sm,
     },
     toneButton: {
@@ -474,10 +648,10 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.gray700,
         padding: SPACING.sm,
         borderRadius: BORDER_RADIUS.lg,
-        minWidth: 70,
+        minWidth: 65,
     },
     toneIcon: {
-        fontSize: 24,
+        fontSize: 22,
         marginBottom: 4,
     },
     toneLabel: {

@@ -1,124 +1,122 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useBoardStore } from '../stores/useBoardStore';
 import { Avatar } from '../components/Avatar';
 import { useNavigation } from '@react-navigation/native';
+import { formatDistanceToNow } from 'date-fns';
+import { BoardPostType } from '../types';
 
-// --- Types ---
-type PostType = 'note' | 'announcement' | 'poll';
-
-interface Post {
-    id: string;
-    type: PostType;
-    author: { name: string; color: string };
-    content: string;
-    createdAt: string;
-    reactions: { emoji: string; count: number }[];
-    pollOptions?: { id: string; text: string; votes: number }[];
-    isPinned?: boolean;
-}
-
-// --- Mock Data - TODO: Replace with real data from Supabase ---
-const MOCK_POSTS: Post[] = [];
+const AVAILABLE_EMOJIS = ['👍', '❤️', '😂', '😍', '🔥', '🎉', '👀', '😋', '😢', '👏'];
 
 export const HouseBoardScreen = () => {
     const navigation = useNavigation();
-    const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
-    const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
-    const [newPostType, setNewPostType] = useState<PostType>('note');
-    const [newPostContent, setNewPostContent] = useState('');
+    const { user } = useAuthStore();
+    const { household } = useHouseholdStore();
+    const {
+        posts,
+        userReactions,
+        isLoading,
+        fetchPosts,
+        createPost,
+        togglePin,
+        vote,
+        toggleReaction
+    } = useBoardStore();
 
-    // Emoji reactions state
-    const [userReactions, setUserReactions] = useState<{ [postId: string]: string[] }>({});
+    const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+    const [newPostType, setNewPostType] = useState<BoardPostType>('note');
+    const [newPostContent, setNewPostContent] = useState('');
+    const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
     const [emojiPickerPostId, setEmojiPickerPostId] = useState<string | null>(null);
 
-    const AVAILABLE_EMOJIS = ['👍', '❤️', '😂', '😍', '🔥', '🎉', '👀', '😋', '😢', '👏'];
+    // Fetch posts on mount
+    useEffect(() => {
+        if (household?.id) {
+            fetchPosts(household.id);
+        }
+    }, [household?.id]);
 
     const pinnedPosts = posts.filter(p => p.isPinned);
     const feedPosts = posts.filter(p => !p.isPinned);
 
-    // Toggle a reaction on a post
     const handleToggleReaction = (postId: string, emoji: string) => {
-        const currentUserReactions = userReactions[postId] || [];
-        const hasReacted = currentUserReactions.includes(emoji);
-
-        // Update user's reactions
-        setUserReactions(prev => ({
-            ...prev,
-            [postId]: hasReacted
-                ? currentUserReactions.filter(e => e !== emoji)
-                : [...currentUserReactions, emoji],
-        }));
-
-        // Update post reactions count
-        setPosts(prevPosts => prevPosts.map(post => {
-            if (post.id !== postId) return post;
-
-            const existingReaction = post.reactions.find(r => r.emoji === emoji);
-            let newReactions;
-
-            if (hasReacted) {
-                // Decrement or remove
-                if (existingReaction && existingReaction.count > 1) {
-                    newReactions = post.reactions.map(r =>
-                        r.emoji === emoji ? { ...r, count: r.count - 1 } : r
-                    );
-                } else {
-                    newReactions = post.reactions.filter(r => r.emoji !== emoji);
-                }
-            } else {
-                // Increment or add
-                if (existingReaction) {
-                    newReactions = post.reactions.map(r =>
-                        r.emoji === emoji ? { ...r, count: r.count + 1 } : r
-                    );
-                } else {
-                    newReactions = [...post.reactions, { emoji, count: 1 }];
-                }
-            }
-
-            return { ...post, reactions: newReactions };
-        }));
+        if (!user) return;
+        toggleReaction(postId, user.id, emoji);
     };
 
-    // Add a new reaction from picker
     const handleAddReaction = (emoji: string) => {
-        if (emojiPickerPostId) {
-            handleToggleReaction(emojiPickerPostId, emoji);
+        if (emojiPickerPostId && user) {
+            toggleReaction(emojiPickerPostId, user.id, emoji);
             setEmojiPickerPostId(null);
         }
     };
 
-    // Toggle pin status for a post
     const handleTogglePin = (postId: string) => {
-        setPosts(prevPosts => prevPosts.map(post =>
-            post.id === postId ? { ...post, isPinned: !post.isPinned } : post
-        ));
+        togglePin(postId);
     };
 
     const handleVote = (postId: string, optionId: string) => {
-        // Logic to update votes would go here
-        console.log(`Voted for ${optionId} on post ${postId}`);
+        if (!user) return;
+        vote(postId, optionId, user.id);
     };
 
-    const handleCreatePost = () => {
-        // Logic to create post
-        const newPost: Post = {
-            id: Math.random().toString(),
+    const handleCreatePost = async () => {
+        if (!household || !user || !newPostContent.trim()) {
+            Alert.alert('Error', 'Please enter some content');
+            return;
+        }
+
+        // Validate poll options if creating a poll
+        if (newPostType === 'poll') {
+            const validOptions = pollOptions.filter(o => o.trim());
+            if (validOptions.length < 2) {
+                Alert.alert('Error', 'Please add at least 2 poll options');
+                return;
+            }
+        }
+
+        await createPost({
+            householdId: household.id,
+            authorId: user.id,
             type: newPostType,
-            author: { name: 'You', color: '#818CF8' },
             content: newPostContent,
-            createdAt: 'Just now',
-            reactions: [],
-            isPinned: newPostType === 'announcement',
-        };
-        setPosts([newPost, ...posts]);
+            pollOptions: newPostType === 'poll' ? pollOptions.filter(o => o.trim()) : undefined,
+        });
+
         setIsCreateModalVisible(false);
         setNewPostContent('');
         setNewPostType('note');
+        setPollOptions(['', '']);
+    };
+
+    const addPollOption = () => {
+        if (pollOptions.length < 6) {
+            setPollOptions([...pollOptions, '']);
+        }
+    };
+
+    const removePollOption = (index: number) => {
+        if (pollOptions.length > 2) {
+            setPollOptions(pollOptions.filter((_, i) => i !== index));
+        }
+    };
+
+    const updatePollOption = (index: number, text: string) => {
+        const updated = [...pollOptions];
+        updated[index] = text;
+        setPollOptions(updated);
+    };
+
+    const formatTime = (date: Date) => {
+        try {
+            return formatDistanceToNow(date, { addSuffix: true });
+        } catch {
+            return 'Just now';
+        }
     };
 
     return (
@@ -136,14 +134,13 @@ export const HouseBoardScreen = () => {
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-                {/* Pinned Section (The "Corkboard" Top) */}
+                {/* Pinned Section */}
                 {pinnedPosts.length > 0 && (
                     <View style={styles.pinnedSection}>
                         <Text style={styles.sectionTitle}>Pinned</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pinnedScroll}>
                             {pinnedPosts.map(post => (
                                 <View key={post.id} style={styles.pinnedCard}>
-                                    {/* Header with pinned label and unpin button */}
                                     <View style={styles.pinnedCardHeader}>
                                         <View style={styles.pinnedLabel}>
                                             <MaterialCommunityIcons name="pin" size={16} color="#A5B4FC" />
@@ -171,7 +168,7 @@ export const HouseBoardScreen = () => {
                 {/* The Feed */}
                 <Text style={styles.sectionTitle}>Feed</Text>
 
-                {feedPosts.length === 0 && pinnedPosts.length === 0 && (
+                {feedPosts.length === 0 && pinnedPosts.length === 0 && !isLoading && (
                     <View style={styles.emptyContainer}>
                         <Feather name="message-square" size={48} color={COLORS.gray700} />
                         <Text style={styles.emptyText}>No posts yet</Text>
@@ -191,7 +188,7 @@ export const HouseBoardScreen = () => {
                                     <Avatar name={post.author.name} color={post.author.color} size="sm" />
                                     <View>
                                         <Text style={styles.authorName}>{post.author.name}</Text>
-                                        <Text style={styles.timestamp}>{post.createdAt}</Text>
+                                        <Text style={styles.timestamp}>{formatTime(post.createdAt)}</Text>
                                     </View>
                                 </View>
                                 <View style={styles.cardHeaderActions}>
@@ -217,17 +214,32 @@ export const HouseBoardScreen = () => {
                             {/* Poll Options */}
                             {post.type === 'poll' && post.pollOptions && (
                                 <View style={styles.pollContainer}>
-                                    {post.pollOptions.map(opt => (
-                                        <TouchableOpacity
-                                            key={opt.id}
-                                            style={styles.pollOption}
-                                            onPress={() => handleVote(post.id, opt.id)}
-                                        >
-                                            <Text style={styles.pollText}>{opt.text}</Text>
-                                            <Text style={styles.pollVotes}>{opt.votes} votes</Text>
-                                            <View style={[styles.pollProgress, { width: `${(opt.votes / 3) * 100}%` }]} />
-                                        </TouchableOpacity>
-                                    ))}
+                                    {post.pollOptions.map(opt => {
+                                        const totalVotes = post.pollOptions?.reduce((sum, o) => sum + o.votes, 0) || 0;
+                                        const percentage = totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0;
+                                        const isVoted = post.userVotedOptionId === opt.id;
+
+                                        return (
+                                            <TouchableOpacity
+                                                key={opt.id}
+                                                style={[styles.pollOption, isVoted && styles.pollOptionVoted]}
+                                                onPress={() => handleVote(post.id, opt.id)}
+                                            >
+                                                <View style={[styles.pollProgress, { width: `${percentage}%` }]} />
+                                                <View style={styles.pollOptionContent}>
+                                                    <Text style={[styles.pollText, isVoted && styles.pollTextVoted]}>
+                                                        {opt.text}
+                                                    </Text>
+                                                    <Text style={styles.pollVotes}>
+                                                        {opt.votes} {opt.votes === 1 ? 'vote' : 'votes'}
+                                                    </Text>
+                                                </View>
+                                                {isVoted && (
+                                                    <Feather name="check" size={16} color={COLORS.primary} style={styles.pollCheck} />
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    })}
                                 </View>
                             )}
 
@@ -282,10 +294,10 @@ export const HouseBoardScreen = () => {
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.modalContent}>
+                    <ScrollView style={styles.modalContent}>
                         {/* Type Selector */}
                         <View style={styles.typeSelector}>
-                            {(['note', 'poll', 'announcement'] as PostType[]).map(type => (
+                            {(['note', 'poll', 'announcement'] as BoardPostType[]).map(type => (
                                 <TouchableOpacity
                                     key={type}
                                     style={[styles.typeOption, newPostType === type && styles.typeOptionActive]}
@@ -300,25 +312,57 @@ export const HouseBoardScreen = () => {
 
                         <TextInput
                             style={styles.input}
-                            placeholder="What's on your mind?"
+                            placeholder={newPostType === 'poll' ? "What's your question?" : "What's on your mind?"}
                             placeholderTextColor={COLORS.textSecondary}
                             multiline
                             value={newPostContent}
                             onChangeText={setNewPostContent}
-                            autoFocus
                         />
 
+                        {/* Poll Options */}
                         {newPostType === 'poll' && (
-                            <Text style={styles.hintText}>* Poll options will be added in the next step (Mock)</Text>
+                            <View style={styles.pollOptionsContainer}>
+                                <Text style={styles.pollOptionsLabel}>Poll Options</Text>
+                                {pollOptions.map((option, index) => (
+                                    <View key={index} style={styles.pollOptionInput}>
+                                        <TextInput
+                                            style={styles.pollOptionTextInput}
+                                            placeholder={`Option ${index + 1}`}
+                                            placeholderTextColor={COLORS.textTertiary}
+                                            value={option}
+                                            onChangeText={(text) => updatePollOption(index, text)}
+                                        />
+                                        {pollOptions.length > 2 && (
+                                            <TouchableOpacity
+                                                onPress={() => removePollOption(index)}
+                                                style={styles.removeOptionButton}
+                                            >
+                                                <Feather name="x" size={18} color={COLORS.error} />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                ))}
+                                {pollOptions.length < 6 && (
+                                    <TouchableOpacity style={styles.addOptionButton} onPress={addPollOption}>
+                                        <Feather name="plus" size={16} color={COLORS.primary} />
+                                        <Text style={styles.addOptionText}>Add Option</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         )}
+
                         {newPostType === 'announcement' && (
                             <Text style={styles.hintText}>* Announcements will be pinned to the top</Text>
                         )}
 
-                        <TouchableOpacity style={styles.postButton} onPress={handleCreatePost}>
+                        <TouchableOpacity
+                            style={[styles.postButton, !newPostContent.trim() && styles.postButtonDisabled]}
+                            onPress={handleCreatePost}
+                            disabled={!newPostContent.trim()}
+                        >
                             <Text style={styles.postButtonText}>Post to Board</Text>
                         </TouchableOpacity>
-                    </View>
+                    </ScrollView>
                 </View>
             </Modal>
 
@@ -457,7 +501,7 @@ const styles = StyleSheet.create({
     },
 
     // Feed Section
-    feed: {
+    feedScroll: {
         gap: SPACING.lg,
     },
     feedCard: {
@@ -466,6 +510,7 @@ const styles = StyleSheet.create({
         borderRadius: BORDER_RADIUS.lg,
         borderWidth: 1,
         borderColor: COLORS.gray800,
+        marginBottom: SPACING.md,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -527,33 +572,44 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.md,
     },
     pollOption: {
-        height: 40,
-        justifyContent: 'center',
-        marginBottom: 4,
+        backgroundColor: COLORS.gray800,
+        borderRadius: BORDER_RADIUS.md,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
+    },
+    pollOptionVoted: {
+        borderColor: COLORS.primary,
     },
     pollProgress: {
         position: 'absolute',
         top: 0,
         bottom: 0,
         left: 0,
-        backgroundColor: COLORS.gray800,
-        borderRadius: BORDER_RADIUS.md,
-        opacity: 0.5,
+        backgroundColor: COLORS.primary + '30',
+    },
+    pollOptionContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: SPACING.md,
     },
     pollText: {
-        position: 'absolute',
-        left: SPACING.md,
         fontSize: FONT_SIZE.sm,
         color: COLORS.textPrimary,
         fontWeight: '500',
-        zIndex: 1,
+    },
+    pollTextVoted: {
+        color: COLORS.primary,
+        fontWeight: '600',
     },
     pollVotes: {
-        position: 'absolute',
-        right: SPACING.md,
         fontSize: FONT_SIZE.xs,
         color: COLORS.textSecondary,
-        zIndex: 1,
+    },
+    pollCheck: {
+        position: 'absolute',
+        right: SPACING.md,
     },
 
     // Reactions
@@ -561,6 +617,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: SPACING.sm,
         marginTop: SPACING.sm,
+        flexWrap: 'wrap',
     },
     reactionPill: {
         backgroundColor: COLORS.gray800,
@@ -584,8 +641,8 @@ const styles = StyleSheet.create({
     },
     addReactionButton: {
         backgroundColor: COLORS.gray800,
-        width: 24,
-        height: 24,
+        width: 28,
+        height: 28,
         borderRadius: BORDER_RADIUS.full,
         justifyContent: 'center',
         alignItems: 'center',
@@ -644,7 +701,7 @@ const styles = StyleSheet.create({
         padding: SPACING.lg,
         fontSize: FONT_SIZE.md,
         color: COLORS.textPrimary,
-        minHeight: 150,
+        minHeight: 120,
         textAlignVertical: 'top',
         marginBottom: SPACING.lg,
         borderWidth: 1,
@@ -655,6 +712,10 @@ const styles = StyleSheet.create({
         padding: SPACING.lg,
         borderRadius: BORDER_RADIUS.full,
         alignItems: 'center',
+        marginTop: SPACING.md,
+    },
+    postButtonDisabled: {
+        opacity: 0.5,
     },
     postButtonText: {
         color: COLORS.white,
@@ -666,6 +727,53 @@ const styles = StyleSheet.create({
         fontSize: FONT_SIZE.xs,
         marginBottom: SPACING.lg,
         fontStyle: 'italic',
+    },
+
+    // Poll Options Input
+    pollOptionsContainer: {
+        marginBottom: SPACING.lg,
+    },
+    pollOptionsLabel: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
+        marginBottom: SPACING.sm,
+    },
+    pollOptionInput: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: SPACING.sm,
+    },
+    pollOptionTextInput: {
+        flex: 1,
+        backgroundColor: COLORS.gray800,
+        borderRadius: BORDER_RADIUS.md,
+        padding: SPACING.md,
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textPrimary,
+        borderWidth: 1,
+        borderColor: COLORS.gray700,
+    },
+    removeOptionButton: {
+        padding: SPACING.sm,
+        marginLeft: SPACING.sm,
+    },
+    addOptionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: SPACING.xs,
+        paddingVertical: SPACING.md,
+        borderWidth: 1,
+        borderColor: COLORS.primary + '50',
+        borderStyle: 'dashed',
+        borderRadius: BORDER_RADIUS.md,
+        marginTop: SPACING.xs,
+    },
+    addOptionText: {
+        color: COLORS.primary,
+        fontWeight: '600',
+        fontSize: FONT_SIZE.sm,
     },
 
     // Emoji Picker Modal
@@ -741,8 +849,5 @@ const styles = StyleSheet.create({
         color: COLORS.white,
         fontWeight: '600',
         fontSize: FONT_SIZE.md,
-    },
-    feedScroll: {
-        paddingBottom: 100,
     },
 });

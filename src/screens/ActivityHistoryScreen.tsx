@@ -10,30 +10,63 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { Avatar, ActivityDetailModal, ActivityItem } from '../components';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, formatDistanceToNow } from 'date-fns';
+import { useChoreStore } from '../stores/useChoreStore';
+import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useAuthStore } from '../stores/useAuthStore';
 
 interface ActivityHistoryScreenProps {
     navigation: any;
 }
 
-// Mock activity data with dates
-const MOCK_ACTIVITIES: (ActivityItem & { date: Date })[] = [
-    { id: '1', user: 'Sam', userColor: '#34D399', type: 'complete', chore: 'Dishes', date: new Date(), time: '2h ago' },
-    { id: '2', user: 'Alex', userColor: '#818CF8', type: 'nudge', chore: 'Sent a reminder', date: new Date(), time: '3h ago' },
-    { id: '3', user: 'Jordan', userColor: '#F472B6', type: 'complete', chore: 'Vacuum Living Room', date: new Date(), time: '5h ago' },
-    { id: '4', user: 'Casey', userColor: '#FBBF24', type: 'complete', chore: 'Take out trash', date: new Date(Date.now() - 86400000), time: 'Yesterday' },
-    { id: '5', user: 'Sam', userColor: '#34D399', type: 'complete', chore: 'Clean bathroom', date: new Date(Date.now() - 86400000), time: 'Yesterday' },
-    { id: '6', user: 'Alex', userColor: '#818CF8', type: 'complete', chore: 'Mop kitchen', date: new Date(Date.now() - 2 * 86400000), time: '2 days ago' },
-    { id: '7', user: 'Jordan', userColor: '#F472B6', type: 'nudge', chore: 'Dishes reminder', date: new Date(Date.now() - 3 * 86400000), time: '3 days ago' },
-    { id: '8', user: 'Casey', userColor: '#FBBF24', type: 'complete', chore: 'Wipe counters', date: new Date(Date.now() - 4 * 86400000), time: '4 days ago' },
-    { id: '9', user: 'Sam', userColor: '#34D399', type: 'complete', chore: 'Dishes', date: new Date(Date.now() - 5 * 86400000), time: '5 days ago' },
-    { id: '10', user: 'Alex', userColor: '#818CF8', type: 'complete', chore: 'Vacuum', date: new Date(Date.now() - 7 * 86400000), time: 'Last week' },
-];
-
 export const ActivityHistoryScreen: React.FC<ActivityHistoryScreenProps> = ({ navigation }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null);
+
+    const { assignments, chores } = useChoreStore();
+    const { members } = useHouseholdStore();
+    const { user } = useAuthStore();
+
+    // Build real activities from completed assignments
+    const realActivities = useMemo(() => {
+        const completedAssignments = assignments
+            .filter(a => a.completedAt)
+            .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+
+        return completedAssignments.map(assignment => {
+            const chore = chores.find(c => c.id === assignment.choreId);
+            const completedBy = assignment.completedBy || assignment.assignedTo;
+
+            // Find member info
+            let memberName = 'Unknown';
+            let memberColor = COLORS.gray500;
+
+            if (user && completedBy === user.id) {
+                memberName = user.name || user.email?.split('@')[0] || 'You';
+                memberColor = user.avatarColor || COLORS.primary;
+            } else {
+                const member = members.find(m => m.id === completedBy);
+                if (member) {
+                    memberName = member.name;
+                    memberColor = member.avatarColor || COLORS.gray500;
+                }
+            }
+
+            const completedDate = new Date(assignment.completedAt!);
+            const timeAgo = formatDistanceToNow(completedDate, { addSuffix: true });
+
+            return {
+                id: assignment.id,
+                user: memberName,
+                userColor: memberColor,
+                type: 'complete' as const,
+                chore: chore?.name || 'Unknown Chore',
+                date: completedDate,
+                time: timeAgo,
+            };
+        });
+    }, [assignments, chores, members, user]);
 
     const calendarDays = useMemo(() => {
         const start = startOfMonth(currentMonth);
@@ -46,12 +79,12 @@ export const ActivityHistoryScreen: React.FC<ActivityHistoryScreenProps> = ({ na
 
     const displayActivities = useMemo(() => {
         if (selectedDate) {
-            return MOCK_ACTIVITIES.filter(a => isSameDay(a.date, selectedDate));
+            return realActivities.filter(a => isSameDay(a.date, selectedDate));
         }
-        return MOCK_ACTIVITIES;
-    }, [selectedDate]);
+        return realActivities;
+    }, [selectedDate, realActivities]);
 
-    const dayHasActivity = (date: Date) => MOCK_ACTIVITIES.some(a => isSameDay(a.date, date));
+    const dayHasActivity = (date: Date) => realActivities.some(a => isSameDay(a.date, date));
 
     const navigateMonth = (direction: 'prev' | 'next') => {
         setCurrentMonth(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
@@ -137,16 +170,14 @@ export const ActivityHistoryScreen: React.FC<ActivityHistoryScreenProps> = ({ na
                                     <Avatar name={activity.user} color={activity.userColor} size="sm" />
                                     <View style={styles.activityContent}>
                                         <Text style={styles.activityText}>
-                                            {activity.type === 'complete' ? (
-                                                <><Text style={styles.activityUser}>{activity.user}</Text>{' completed '}<Text style={styles.activityChore}>{activity.chore}</Text></>
-                                            ) : (
-                                                <><Text style={styles.activityUser}>{activity.user}</Text>{' sent a nudge'}</>
-                                            )}
+                                            <Text style={styles.activityUser}>{activity.user}</Text>
+                                            {' completed '}
+                                            <Text style={styles.activityChore}>{activity.chore}</Text>
                                         </Text>
                                         <Text style={styles.activityTime}>{activity.time}</Text>
                                     </View>
-                                    <View style={[styles.activityIcon, activity.type === 'complete' ? styles.activityIconComplete : styles.activityIconNudge]}>
-                                        <Feather name={activity.type === 'complete' ? 'check' : 'send'} size={12} color={activity.type === 'complete' ? COLORS.success : COLORS.primary} />
+                                    <View style={styles.activityIcon}>
+                                        <Feather name="check" size={14} color={COLORS.success} />
                                     </View>
                                 </TouchableOpacity>
                             ))}
@@ -154,11 +185,13 @@ export const ActivityHistoryScreen: React.FC<ActivityHistoryScreenProps> = ({ na
                     ) : (
                         <View style={styles.emptyState}>
                             <Feather name="calendar" size={48} color={COLORS.gray700} />
-                            <Text style={styles.emptyText}>No activity on this day</Text>
+                            <Text style={styles.emptyText}>
+                                {selectedDate ? 'No activity on this day' : 'No activity yet'}
+                            </Text>
                         </View>
                     )}
                 </View>
-                <View style={{ height: 40 }} />
+                <View style={{ height: 100 }} />
             </ScrollView>
 
             {/* Shared Activity Detail Modal */}
@@ -171,39 +204,188 @@ export const ActivityHistoryScreen: React.FC<ActivityHistoryScreenProps> = ({ na
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.background },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.gray800 },
-    backButton: { width: 40, height: 40, borderRadius: BORDER_RADIUS.full, backgroundColor: COLORS.gray800, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { fontSize: FONT_SIZE.lg, fontWeight: '700', color: COLORS.textPrimary },
-    calendarContainer: { margin: SPACING.lg, backgroundColor: COLORS.gray900, borderRadius: BORDER_RADIUS.xl, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.gray800, ...SHADOWS.md },
-    monthNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.lg },
-    navButton: { width: 40, height: 40, borderRadius: BORDER_RADIUS.full, backgroundColor: COLORS.gray800, justifyContent: 'center', alignItems: 'center' },
-    monthTitle: { fontSize: FONT_SIZE.lg, fontWeight: '700', color: COLORS.textPrimary },
-    weekdayRow: { flexDirection: 'row', marginBottom: SPACING.sm },
-    weekdayLabel: { flex: 1, textAlign: 'center', fontSize: FONT_SIZE.xs, fontWeight: '600', color: COLORS.textTertiary, textTransform: 'uppercase' },
-    calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-    dayCell: { width: '14.28%', aspectRatio: 1, justifyContent: 'center', alignItems: 'center', borderRadius: BORDER_RADIUS.md },
-    dayCellSelected: { backgroundColor: COLORS.primary },
-    dayCellToday: { backgroundColor: COLORS.gray800 },
-    dayText: { fontSize: FONT_SIZE.sm, fontWeight: '500', color: COLORS.textSecondary },
-    dayTextSelected: { color: COLORS.white, fontWeight: '700' },
-    dayTextToday: { color: COLORS.primary, fontWeight: '700' },
-    activityDot: { position: 'absolute', bottom: 6, width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.success },
-    activityDotSelected: { backgroundColor: COLORS.white },
-    activitySection: { paddingHorizontal: SPACING.lg },
-    activityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md },
-    activityTitle: { fontSize: FONT_SIZE.md, fontWeight: '700', color: COLORS.textPrimary },
-    clearFilter: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.primary },
-    activityList: { backgroundColor: COLORS.gray900, borderRadius: BORDER_RADIUS.xl, padding: SPACING.md, borderWidth: 1, borderColor: COLORS.gray800 },
-    activityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.gray800, gap: SPACING.md },
-    activityContent: { flex: 1 },
-    activityText: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary, lineHeight: 20 },
-    activityUser: { fontWeight: '700', color: COLORS.textPrimary },
-    activityChore: { fontWeight: '600', color: COLORS.primary },
-    activityTime: { fontSize: FONT_SIZE.xs, color: COLORS.textTertiary, marginTop: 2 },
-    activityIcon: { width: 28, height: 28, borderRadius: BORDER_RADIUS.full, justifyContent: 'center', alignItems: 'center' },
-    activityIconComplete: { backgroundColor: COLORS.success + '20' },
-    activityIconNudge: { backgroundColor: COLORS.primary + '20' },
-    emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: SPACING.xxl, backgroundColor: COLORS.gray900, borderRadius: BORDER_RADIUS.xl, borderWidth: 1, borderColor: COLORS.gray800 },
-    emptyText: { fontSize: FONT_SIZE.sm, color: COLORS.textTertiary, marginTop: SPACING.md },
+    container: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: SPACING.lg,
+        paddingVertical: SPACING.md,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.gray800,
+    },
+    backButton: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    headerTitle: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    calendarContainer: {
+        margin: SPACING.lg,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.lg,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+        ...SHADOWS.md,
+    },
+    monthNav: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: SPACING.lg,
+    },
+    navButton: {
+        width: 40,
+        height: 40,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.gray800,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    monthTitle: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    weekdayRow: {
+        flexDirection: 'row',
+        marginBottom: SPACING.sm,
+    },
+    weekdayLabel: {
+        flex: 1,
+        textAlign: 'center',
+        fontSize: FONT_SIZE.xs,
+        fontWeight: '600',
+        color: COLORS.textTertiary,
+        textTransform: 'uppercase',
+    },
+    calendarGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    dayCell: {
+        width: '14.28%',
+        aspectRatio: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: BORDER_RADIUS.md,
+    },
+    dayCellSelected: {
+        backgroundColor: COLORS.primary,
+    },
+    dayCellToday: {
+        backgroundColor: COLORS.gray800,
+    },
+    dayText: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '500',
+        color: COLORS.textSecondary,
+    },
+    dayTextSelected: {
+        color: COLORS.white,
+        fontWeight: '700',
+    },
+    dayTextToday: {
+        color: COLORS.primary,
+        fontWeight: '700',
+    },
+    activityDot: {
+        position: 'absolute',
+        bottom: 6,
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: COLORS.success,
+    },
+    activityDotSelected: {
+        backgroundColor: COLORS.white,
+    },
+    activitySection: {
+        paddingHorizontal: SPACING.lg,
+    },
+    activityHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.md,
+    },
+    activityTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    clearFilter: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        color: COLORS.primary,
+    },
+    activityList: {
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        padding: SPACING.md,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    activityItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: SPACING.md,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.gray800,
+        gap: SPACING.md,
+    },
+    activityContent: {
+        flex: 1,
+    },
+    activityText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+        lineHeight: 20,
+    },
+    activityUser: {
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    activityChore: {
+        fontWeight: '600',
+        color: COLORS.primary,  // Blue to match main view
+    },
+    activityTime: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textTertiary,
+        marginTop: 2,
+    },
+    activityIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: 'rgba(52, 211, 153, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: SPACING.xxl,
+        backgroundColor: COLORS.gray900,
+        borderRadius: BORDER_RADIUS.xl,
+        borderWidth: 1,
+        borderColor: COLORS.gray800,
+    },
+    emptyText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textTertiary,
+        marginTop: SPACING.md,
+    },
 });
