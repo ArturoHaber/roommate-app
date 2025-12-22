@@ -9,6 +9,7 @@ import { useExpenseStore } from '../stores/useExpenseStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { Avatar } from '../components/Avatar';
 import { ExpandableFAB } from '../components/ExpandableFAB';
+import { AuthGateModal, useIsAnonymous } from '../components/AuthGateModal';
 
 export const ExpensesScreen = () => {
   const { user } = useAuthStore();
@@ -19,6 +20,10 @@ export const ExpensesScreen = () => {
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<'groceries' | 'utilities' | 'rent' | 'supplies' | 'other'>('groceries');
+  const [showAuthGate, setShowAuthGate] = useState(false);
+
+  // Check if user is anonymous
+  const isUserAnonymous = useIsAnonymous();
 
   // Initialize sample expenses if needed
   useEffect(() => {
@@ -128,11 +133,19 @@ export const ExpensesScreen = () => {
     Alert.alert("✓ Added!", `$${amountNum.toFixed(2)} expense added and split with everyone.`);
   };
 
+  const handleOpenAddExpense = () => {
+    if (isUserAnonymous) {
+      setShowAuthGate(true);
+      return;
+    }
+    setIsAddModalVisible(true);
+  };
+
   const FABActions = [
     {
       icon: 'plus' as const,
       label: 'Add Expense',
-      onPress: () => setIsAddModalVisible(true),
+      onPress: handleOpenAddExpense,
     },
     {
       icon: 'camera' as const,
@@ -349,6 +362,13 @@ export const ExpensesScreen = () => {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Auth Gate Modal */}
+      <AuthGateModal
+        visible={showAuthGate}
+        onClose={() => setShowAuthGate(false)}
+        action="expense"
+      />
     </SafeAreaView>
   );
 };

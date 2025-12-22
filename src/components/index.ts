@@ -37,3 +37,4 @@ export * from './auth/EmailAuthForm';
 export { ChoresComp } from './ChoresComp';
 export { HouseStatusHeader } from './HouseStatusHeader';
 export { HouseOverview } from './HouseOverview';
+export { AuthGateModal, useIsAnonymous } from './AuthGateModal';

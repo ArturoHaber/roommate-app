@@ -7,6 +7,7 @@ import { Chore, ChoreAssignment, User, NudgeTone } from '../types';
 import { Avatar } from './Avatar';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useNavigation } from '@react-navigation/native';
 
 interface TaskDetailModalProps {
     visible: boolean;
@@ -39,6 +40,7 @@ export const TaskDetailModal = ({
     onSnitch
 }: TaskDetailModalProps) => {
     const [nudgeMode, setNudgeMode] = useState<'nudge' | 'snitch' | null>(null);
+    const navigation = useNavigation();
 
     const { assignments, chores, completeChore } = useChoreStore();
     const { members } = useHouseholdStore();
@@ -298,7 +300,16 @@ export const TaskDetailModal = ({
                                 </View>
                             ) : (
                                 <>
-                                    <TouchableOpacity style={styles.nudgeButton} onPress={() => setNudgeMode('nudge')}>
+                                    <TouchableOpacity
+                                        style={styles.nudgeButton}
+                                        onPress={() => {
+                                            onClose();
+                                            (navigation as any).navigate('NudgeScreen', {
+                                                targetUserId: assignee?.id,
+                                                choreName: task.name,
+                                            });
+                                        }}
+                                    >
                                         <Text style={styles.nudgeButtonText}>👋 Nudge</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity style={styles.takeOverButton} onPress={handleTakeOver}>

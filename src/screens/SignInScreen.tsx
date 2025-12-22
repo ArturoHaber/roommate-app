@@ -136,7 +136,22 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
                         {/* Auth Content */}
                         {authMode === 'options' ? (
                             <View style={styles.authOptionsContainer}>
-                                {/* Guest Button (Prominent) */}
+                                {/* OAuth + Email Options First */}
+                                <AuthOptions
+                                    onGoogleSignIn={() => handleOAuthSignIn('google')}
+                                    onAppleSignIn={() => handleOAuthSignIn('apple')}
+                                    onEmailSignIn={() => setAuthMode('email-signup')}
+                                    isLoading={isLoading}
+                                />
+
+                                {/* Divider */}
+                                <View style={styles.dividerContainer}>
+                                    <View style={styles.dividerLine} />
+                                    <Text style={styles.dividerText}>or continue as</Text>
+                                    <View style={styles.dividerLine} />
+                                </View>
+
+                                {/* Guest Button (Secondary) */}
                                 <TouchableOpacity
                                     style={styles.guestButton}
                                     onPress={handleGuestSignIn}
@@ -144,27 +159,17 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
                                     activeOpacity={0.9}
                                 >
                                     <LinearGradient
-                                        colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.05)']}
+                                        colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.04)']}
                                         style={styles.guestButtonGradient}
                                     >
-                                        <Feather name="user" size={20} color={COLORS.white} />
-                                        <Text style={styles.guestButtonText}>Continue as Guest</Text>
+                                        <Feather name="user" size={20} color={COLORS.textSecondary} />
+                                        <Text style={styles.guestButtonText}>Guest</Text>
                                     </LinearGradient>
                                 </TouchableOpacity>
 
-                                {/* Divider */}
-                                <View style={styles.dividerContainer}>
-                                    <View style={styles.dividerLine} />
-                                    <Text style={styles.dividerText}>or sign in with</Text>
-                                    <View style={styles.dividerLine} />
-                                </View>
-
-                                <AuthOptions
-                                    onGoogleSignIn={() => handleOAuthSignIn('google')}
-                                    onAppleSignIn={() => handleOAuthSignIn('apple')}
-                                    onEmailSignIn={() => setAuthMode('email-signup')}
-                                    isLoading={isLoading}
-                                />
+                                <Text style={styles.guestHint}>
+                                    You can link your account anytime
+                                </Text>
                             </View>
                         ) : (
                             <EmailAuthForm
@@ -408,26 +413,31 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.white,
     },
-    // Guest Button
+    // Guest Button (Secondary - less prominent)
     guestButton: {
-        height: 56,
+        height: 48,
         borderRadius: BORDER_RADIUS.lg,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: COLORS.primary,
-        marginBottom: SPACING.xs,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
     },
     guestButtonGradient: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: SPACING.md,
+        gap: SPACING.sm,
     },
     guestButtonText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: COLORS.white,
+        fontSize: 15,
+        fontWeight: '500',
+        color: 'rgba(255, 255, 255, 0.6)',
+    },
+    guestHint: {
+        fontSize: 12,
+        color: 'rgba(255, 255, 255, 0.4)',
+        textAlign: 'center',
+        marginTop: SPACING.xs,
     },
 
     // Email Form

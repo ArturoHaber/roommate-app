@@ -20,11 +20,25 @@ import {
   SignInScreen,
   HouseholdPreviewScreen,
   NeedsAttentionScreen,
+  NudgeScreen,
+  ChoreManagementScreen,
 } from './src/screens';
 import { ChoresCalmScreen } from './src/screens/ChoresCalmScreen';
 import { ActivityHistoryScreen } from './src/screens/ActivityHistoryScreen';
+import { ComponentGalleryScreen } from './src/screens/ComponentGalleryScreen';
+// New onboarding screens
+import {
+  WelcomeScreen,
+  JoinHouseScreen,
+  HouseBasicsScreen,
+  InviteRoommatesScreen,
+  ChoresStarterScreen,
+  ConfirmationPreviewScreen,
+  ChoreTemplate,
+} from './src/screens/onboarding';
 import { useAuthStore } from './src/stores/useAuthStore';
 import { useHouseholdStore } from './src/stores/useHouseholdStore';
+import { useChoreStore } from './src/stores/useChoreStore';
 import { COLORS } from './src/constants/theme';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -51,6 +65,7 @@ function DashboardStack() {
       <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="HousePulse" component={HousePulseScreen} />
       <Stack.Screen name="HouseBoard" component={HouseBoardScreen} />
+      <Stack.Screen name="NudgeScreen" component={NudgeScreen} />
     </Stack.Navigator>
   );
 }
@@ -63,6 +78,7 @@ function ChoresStack() {
       <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
       <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
+      <Stack.Screen name="ChoreManagement" component={ChoreManagementScreen} />
     </Stack.Navigator>
   );
 }
@@ -74,6 +90,9 @@ function OldStack() {
       <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
       <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
+      <Stack.Screen name="NudgeScreen" component={NudgeScreen} />
+      <Stack.Screen name="ChoreManagement" component={ChoreManagementScreen} />
+      <Stack.Screen name="ComponentGallery" component={ComponentGalleryScreen} />
     </Stack.Navigator>
   );
 }
@@ -119,8 +138,16 @@ function MainTabs() {
   );
 }
 
-// Onboarding flow steps
-type OnboardingStep = 'carousel' | 'choice' | 'setup' | 'join-preview' | 'signin' | 'complete';
+// Onboarding flow steps - NEW FLOW
+type OnboardingStep =
+  | 'welcome'           // New: Welcome screen with Create/Join
+  | 'join'              // New: Join house with code
+  | 'house-basics'      // New: House name + emoji
+  | 'invite'            // New: Invite roommates
+  | 'chores-starter'    // New: Pick chores
+  | 'confirmation'      // New: Preview before sign-in
+  | 'signin'            // Existing: Sign in screen
+  | 'complete';         // Done, show main app
 
 // Pending household data (stored until sign-in completes)
 interface PendingHousehold {
@@ -130,6 +157,7 @@ interface PendingHousehold {
   inviteCode?: string;
   memberCount?: number;
   memberPreviews?: any[];
+  selectedChores?: ChoreTemplate[];
 }
 
 // Keys for persisting onboarding state
@@ -141,7 +169,7 @@ export default function App() {
   const { household, fetchHousehold, createHousehold, joinHousehold, validateInvite } = useHouseholdStore();
 
   // Onboarding flow state (persisted to survive OAuth redirects)
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('carousel');
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('welcome');
   const [pendingHousehold, setPendingHousehold] = useState<PendingHousehold | null>(null);
   const [stateLoaded, setStateLoaded] = useState(false);
 
@@ -230,11 +258,11 @@ export default function App() {
     }
   }, [isAuthenticated, user?.id, pendingHousehold, stateLoaded]);
 
-  // Redirect to choice screen if authenticated but no household
+  // Redirect to welcome screen if authenticated but no household
   useEffect(() => {
-    if (isAuthenticated && stateLoaded && !isLoading && !household && !pendingHousehold && onboardingStep === 'carousel') {
-      console.log('[App] Authenticated but no household found, redirecting to choice screen');
-      setOnboardingStep('choice');
+    if (isAuthenticated && stateLoaded && !isLoading && !household && !pendingHousehold && onboardingStep === 'welcome') {
+      console.log('[App] Authenticated but no household found, staying on welcome');
+      // User will choose Create or Join from welcome screen
     }
   }, [isAuthenticated, stateLoaded, isLoading, household, pendingHousehold, onboardingStep]);
 
@@ -266,7 +294,7 @@ export default function App() {
               memberCount: householdData.member_count,
               memberPreviews: householdData.member_previews,
             });
-            setOnboardingStep('join-preview');
+            setOnboardingStep('signin');
           }
         } catch (e) {
           console.error('[App] Invalid invite code from link:', e);
@@ -288,11 +316,11 @@ export default function App() {
     };
   }, [validateInvite]); // Added validateInvite to dependency array
 
-  // Reset to carousel on logout
+  // Reset to welcome on logout
   useEffect(() => {
     if (!isAuthenticated && stateLoaded && !isLoading) {
       // If user logs out, go back to initial screen
-      setOnboardingStep('carousel');
+      setOnboardingStep('welcome');
     }
   }, [isAuthenticated, stateLoaded, isLoading]);
 
@@ -304,6 +332,21 @@ export default function App() {
     }
   }, [household, isAuthenticated]);
 
+  // Redirect to welcome if authenticated but NO household (e.g., after delete)
+  useEffect(() => {
+    if (isAuthenticated && stateLoaded && !isLoading && !household && !pendingHousehold && onboardingStep === 'complete') {
+      console.log('[App] Authenticated but no household, redirecting to welcome');
+      // Small delay to ensure we've had time to fetch household
+      const timer = setTimeout(() => {
+        // Re-check in case household was fetched
+        if (!household) {
+          setOnboardingStep('welcome');
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated, stateLoaded, isLoading, household, pendingHousehold, onboardingStep]);
+
   // Show loading while checking auth
   if (isLoading) {
     return (
@@ -312,92 +355,111 @@ export default function App() {
       </View>
     );
   }
+  // ========================================
+  // NEW ONBOARDING FLOW
+  // ========================================
 
-  // Onboarding Flow
-  if (onboardingStep === 'carousel') {
+  // Screen 1: Welcome - Create or Join
+  if (onboardingStep === 'welcome') {
     return (
       <>
         <StatusBar barStyle="light-content" />
-        <OnboardingCarouselScreen
-          onComplete={() => setOnboardingStep('choice')}
-          onLogin={() => setOnboardingStep('signin')}
+        <WelcomeScreen
+          onCreateHouse={() => setOnboardingStep('house-basics')}
+          onJoinHouse={() => setOnboardingStep('join')}
         />
       </>
     );
   }
 
-  if (onboardingStep === 'choice') {
+  // Screen 2: Join House (paste code)
+  if (onboardingStep === 'join') {
     return (
       <>
         <StatusBar barStyle="light-content" />
-        <HouseholdChoiceScreen
-          onCreateHousehold={() => setOnboardingStep('setup')}
-          onJoinHousehold={async (code) => {
-            // Validate code
-            const householdData = await validateInvite(code);
-
-            if (householdData) {
-              setPendingHousehold({
-                name: householdData.name,
-                emoji: householdData.emoji,
-                isJoining: true,
-                inviteCode: code,
-                memberCount: householdData.member_count,
-                memberPreviews: householdData.member_previews,
-              });
-              setOnboardingStep('join-preview');
-            } else {
-              throw new Error('Invalid invite code');
-            }
+        <JoinHouseScreen
+          onBack={() => setOnboardingStep('welcome')}
+          onJoinSuccess={() => {
+            // After joining, go straight to sign-in
+            setOnboardingStep('signin');
           }}
         />
       </>
     );
   }
 
-  if (onboardingStep === 'setup') {
+  // Screen 3: House Basics (name + emoji)
+  if (onboardingStep === 'house-basics') {
     return (
       <>
         <StatusBar barStyle="light-content" />
-        <HouseholdSetupScreen
-          onBack={() => setOnboardingStep('choice')}
-          onComplete={async (name, emoji) => {
-            // Store pending data
+        <HouseBasicsScreen
+          onBack={() => setOnboardingStep('welcome')}
+          onContinue={(name, emoji) => {
             setPendingHousehold({
               name,
               emoji,
               isJoining: false,
             });
-            // Navigate to Sign In / Continue screen
-            setOnboardingStep('signin');
+            setOnboardingStep('invite');
           }}
         />
       </>
     );
   }
 
-  if (onboardingStep === 'join-preview') {
+  // Screen 4: Invite Roommates (skippable)
+  if (onboardingStep === 'invite') {
+    // Generate a temporary invite code (will be replaced with real one after household creation)
+    const tempCode = 'XXXXXX'; // Placeholder - real code comes after household creation
+
     return (
       <>
         <StatusBar barStyle="light-content" />
-        <HouseholdPreviewScreen
-          householdName={pendingHousehold?.name || 'A Household'}
-          householdEmoji={pendingHousehold?.emoji || '🏠'}
-          memberCount={pendingHousehold?.memberCount || 0}
-          memberNames={(pendingHousehold?.memberPreviews || []).map((m: any) => m.name)}
-          onBack={() => {
-            setPendingHousehold(null);
-            setOnboardingStep('choice');
-          }}
-          onContinue={async () => {
-            // Navigate to Sign In / Continue screen
-            setOnboardingStep('signin');
+        <InviteRoommatesScreen
+          inviteCode={tempCode}
+          houseName={pendingHousehold?.name || 'Your House'}
+          onBack={() => setOnboardingStep('house-basics')}
+          onContinue={() => setOnboardingStep('chores-starter')}
+          onSkip={() => setOnboardingStep('chores-starter')}
+        />
+      </>
+    );
+  }
+
+  // Screen 5: Chores Starter Pack
+  if (onboardingStep === 'chores-starter') {
+    return (
+      <>
+        <StatusBar barStyle="light-content" />
+        <ChoresStarterScreen
+          onBack={() => setOnboardingStep('invite')}
+          onContinue={(selectedChores) => {
+            setPendingHousehold(prev => prev ? { ...prev, selectedChores } : null);
+            setOnboardingStep('confirmation');
           }}
         />
       </>
     );
   }
 
+  // Screen 6: Confirmation Preview
+  if (onboardingStep === 'confirmation') {
+    return (
+      <>
+        <StatusBar barStyle="light-content" />
+        <ConfirmationPreviewScreen
+          houseName={pendingHousehold?.name || 'Your House'}
+          houseEmoji={pendingHousehold?.emoji || '🏠'}
+          selectedChores={pendingHousehold?.selectedChores || []}
+          onBack={() => setOnboardingStep('chores-starter')}
+          onGetStarted={() => setOnboardingStep('signin')}
+        />
+      </>
+    );
+  }
+
+  // Screen 7: Sign In
   if (onboardingStep === 'signin') {
     return (
       <>
@@ -408,9 +470,9 @@ export default function App() {
           isJoining={pendingHousehold?.isJoining}
           onBack={() => {
             if (pendingHousehold?.isJoining) {
-              setOnboardingStep('join-preview');
+              setOnboardingStep('join');
             } else {
-              setOnboardingStep('setup');
+              setOnboardingStep('confirmation');
             }
           }}
           onGuestSignIn={async () => {

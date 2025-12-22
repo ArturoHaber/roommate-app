@@ -244,18 +244,35 @@ export const HouseholdScreen = () => {
                 {/* Header */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>Chores</Text>
-                    <TouchableOpacity
-                        style={styles.headerButton}
-                        onPress={async () => {
-                            if (household?.id && members.length > 0) {
-                                const memberIds = members.map(m => m.id);
-                                await seedTestChores(household.id, memberIds);
-                                Alert.alert('✅ Test Data Added!', '6 chores and assignments have been created.');
-                            }
-                        }}
-                    >
-                        <Feather name="database" size={20} color={COLORS.secondary} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                        {/* Dev: Add test data */}
+                        <TouchableOpacity
+                            style={styles.headerButton}
+                            onPress={async () => {
+                                if (household?.id && members.length > 0) {
+                                    const memberIds = members.map(m => m.id);
+                                    await seedTestChores(household.id, memberIds);
+                                    Alert.alert('✅ Test Data Added!', '6 chores and assignments have been created.');
+                                }
+                            }}
+                        >
+                            <Feather name="database" size={20} color={COLORS.textSecondary} />
+                        </TouchableOpacity>
+                        {/* Component Gallery (Dev Audit) */}
+                        <TouchableOpacity
+                            style={styles.headerButton}
+                            onPress={() => navigation.navigate('ComponentGallery' as never)}
+                        >
+                            <Feather name="search" size={20} color={COLORS.warning} />
+                        </TouchableOpacity>
+                        {/* Manage Chores */}
+                        <TouchableOpacity
+                            style={styles.headerButton}
+                            onPress={() => navigation.navigate('ChoreManagement' as never)}
+                        >
+                            <Feather name="sliders" size={20} color={COLORS.textPrimary} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* ========================================== */}

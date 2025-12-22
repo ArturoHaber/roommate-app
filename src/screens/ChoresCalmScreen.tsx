@@ -284,17 +284,27 @@ export const ChoresCalmScreen: React.FC = () => {
                 {/* Header at the top */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>CribUp</Text>
-                    <TouchableOpacity
-                        style={styles.addButton}
-                        onPress={async () => {
-                            if (household?.id && members.length > 0) {
-                                await seedTestChores(household.id, members.map(m => m.id));
-                                Alert.alert('✓', 'Test chores added');
-                            }
-                        }}
-                    >
-                        <Feather name="plus" size={22} color={COLORS.textPrimary} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                        {/* Dev: Add test data */}
+                        <TouchableOpacity
+                            style={styles.addButton}
+                            onPress={async () => {
+                                if (household?.id && members.length > 0) {
+                                    await seedTestChores(household.id, members.map(m => m.id));
+                                    Alert.alert('✓', 'Test chores added');
+                                }
+                            }}
+                        >
+                            <Feather name="database" size={20} color={COLORS.textSecondary} />
+                        </TouchableOpacity>
+                        {/* Manage Chores */}
+                        <TouchableOpacity
+                            style={styles.addButton}
+                            onPress={() => navigation.navigate('ChoreManagement' as never)}
+                        >
+                            <Feather name="sliders" size={20} color={COLORS.textPrimary} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* THE CHORE SPACE - THE INTEGRATED COMPONENT */}

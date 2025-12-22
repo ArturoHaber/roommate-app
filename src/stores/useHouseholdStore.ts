@@ -22,6 +22,7 @@ interface HouseholdState {
   upsertEssential: (type: 'wifi' | 'landlord' | 'emergency' | 'custom', label: string, value: string) => Promise<void>;
   leaveHousehold: (userId: string) => Promise<void>;
   promoteMember: (userId: string) => Promise<void>;
+  demoteMember: (userId: string) => Promise<void>;
   removeMember: (userId: string) => Promise<void>;
   deleteHousehold: () => Promise<void>;
   getMemberIds: () => string[];
@@ -543,6 +544,45 @@ export const useHouseholdStore = create<HouseholdState>()(
       },
 
       // ========================================================================
+      // DEMOTE MEMBER FROM ADMIN
+      // ========================================================================
+      demoteMember: async (userId: string): Promise<void> => {
+        set({ isLoading: true, error: null });
+
+        try {
+          const { household, memberships } = get();
+          if (!household) {
+            set({ isLoading: false });
+            return;
+          }
+
+          // Cannot demote the owner
+          if (household.createdBy === userId) {
+            set({ error: 'Cannot demote the household owner', isLoading: false });
+            return;
+          }
+
+          // Update role to member in database
+          const { error } = await supabase
+            .from('household_members')
+            .update({ role: 'member' })
+            .eq('household_id', household.id)
+            .eq('user_id', userId);
+
+          if (error) throw error;
+
+          // Update local state
+          const updatedMemberships = memberships.map(m =>
+            m.userId === userId ? { ...m, role: 'member' as const } : m
+          );
+          set({ memberships: updatedMemberships, isLoading: false });
+        } catch (error: any) {
+          console.error('Demote member error:', error);
+          set({ error: error.message, isLoading: false });
+        }
+      },
+
+      // ========================================================================
       // REMOVE MEMBER FROM HOUSEHOLD
       // ========================================================================
       removeMember: async (userId: string): Promise<void> => {
@@ -589,15 +629,10 @@ export const useHouseholdStore = create<HouseholdState>()(
             return;
           }
 
-          // Delete all household members first (foreign key constraint)
-          const { error: membersError } = await supabase
-            .from('household_members')
-            .delete()
-            .eq('household_id', household.id);
+          // Delete in order of dependencies
+          // (RLS policy was fixed to avoid recursion)
 
-          if (membersError) throw membersError;
-
-          // Delete essentials
+          // Delete household essentials
           await supabase
             .from('household_essentials')
             .delete()
@@ -614,6 +649,17 @@ export const useHouseholdStore = create<HouseholdState>()(
             .from('chores')
             .delete()
             .eq('household_id', household.id);
+
+          // Delete household members
+          const { error: membersError } = await supabase
+            .from('household_members')
+            .delete()
+            .eq('household_id', household.id);
+
+          if (membersError) {
+            console.error('[deleteHousehold] Members delete error:', membersError);
+            throw membersError;
+          }
 
           // Finally delete the household
           const { error: householdError } = await supabase

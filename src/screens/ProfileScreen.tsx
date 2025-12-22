@@ -15,7 +15,7 @@ import {
   Linking,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Card, Avatar, HouseholdSettings, LinkAccountModal } from '../components';
+import { Card, Avatar, HouseholdSettings, LinkAccountModal, AuthGateModal, useIsAnonymous } from '../components';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
@@ -70,9 +70,13 @@ export const ProfileScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('personal');
   const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
   const [isLinkModalVisible, setIsLinkModalVisible] = useState(false);
+  const [showAuthGate, setShowAuthGate] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('');
+
+  // Check if user is anonymous
+  const isUserAnonymous = useIsAnonymous();
 
   if (!user) return null;
 
@@ -133,6 +137,10 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const openEditProfile = () => {
+    if (isUserAnonymous) {
+      setShowAuthGate(true);
+      return;
+    }
     setEditName(user.name);
     setEditEmail(user.email);
     setEditAvatarColor(user.avatarColor || AVATAR_COLORS[0]);
@@ -472,6 +480,13 @@ export const ProfileScreen: React.FC = () => {
           await deleteAccount();
           setIsLinkModalVisible(false);
         }}
+      />
+
+      {/* Auth Gate Modal */}
+      <AuthGateModal
+        visible={showAuthGate}
+        onClose={() => setShowAuthGate(false)}
+        action="settings"
       />
     </SafeAreaView>
   );

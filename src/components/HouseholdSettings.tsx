@@ -7,12 +7,13 @@ import { Avatar } from './Avatar';
 import * as Clipboard from 'expo-clipboard';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { AuthGateModal, useIsAnonymous } from './AuthGateModal';
 
 const HOUSE_EMOJIS = ['🏠', '🏡', '🏢', '🏘️', '🏰', '🛖', '🏗️', '🌆', '🌃', '🌇'];
 
 export const HouseholdSettings = () => {
     // Real data from stores
-    const { household, members, memberships, essentials, updateHousehold, upsertEssential, promoteMember, removeMember, deleteHousehold } = useHouseholdStore();
+    const { household, members, memberships, essentials, updateHousehold, upsertEssential, promoteMember, demoteMember, removeMember, deleteHousehold } = useHouseholdStore();
     const { user } = useAuthStore();
 
     const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
@@ -35,6 +36,11 @@ export const HouseholdSettings = () => {
     const [houseAddress, setHouseAddress] = useState(household?.address || 'No address set');
     const [isVacationMode, setIsVacationMode] = useState(user?.isVacationMode || false);
     const [isInviteModalVisible, setIsInviteModalVisible] = useState(false);
+    const [showAuthGate, setShowAuthGate] = useState(false);
+    const [authGateAction, setAuthGateAction] = useState<'invite' | 'settings'>('settings');
+
+    // Check if user is anonymous
+    const isUserAnonymous = useIsAnonymous();
 
     // Sync state when household data changes
     useEffect(() => {
@@ -68,6 +74,11 @@ export const HouseholdSettings = () => {
     };
 
     const handleSaveHousehold = async () => {
+        if (isUserAnonymous) {
+            setAuthGateAction('settings');
+            setShowAuthGate(true);
+            return;
+        }
         if (houseName.trim()) {
             await updateHousehold({
                 name: houseName.trim(),
@@ -117,6 +128,24 @@ export const HouseholdSettings = () => {
                     ]
                 );
             }
+        } else if (action === 'demote') {
+            const confirmDemote = () => {
+                demoteMember(selectedMember.id);
+            };
+            if (Platform.OS === 'web') {
+                if (window.confirm(`Demote ${selectedMember.name} from Admin?`)) {
+                    confirmDemote();
+                }
+            } else {
+                Alert.alert(
+                    'Demote from Admin',
+                    `Are you sure you want to remove admin privileges from ${selectedMember.name}?`,
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Demote', onPress: confirmDemote },
+                    ]
+                );
+            }
         } else if (action === 'remove') {
             const confirmRemove = () => {
                 removeMember(selectedMember.id);
@@ -135,9 +164,6 @@ export const HouseholdSettings = () => {
                     ]
                 );
             }
-        } else if (action === 'nudge') {
-            console.log(`Nudge ${selectedMember.name}`);
-            // TODO: Implement nudge functionality
         }
 
         setIsMemberMenuVisible(false);
@@ -167,8 +193,19 @@ export const HouseholdSettings = () => {
     // Check if current user is admin
     const isCurrentUserAdmin = memberships.find(m => m.userId === user?.id)?.role === 'admin';
 
+    // Check if a user is the owner (creator)
+    const isOwner = (userId: string): boolean => {
+        return household?.createdBy === userId;
+    };
+
+    // Check if a user is an admin
+    const isAdmin = (userId: string): boolean => {
+        return memberships.find(m => m.userId === userId)?.role === 'admin';
+    };
+
     // Get member role from memberships
     const getMemberRole = (userId: string): string => {
+        if (isOwner(userId)) return 'Owner';
         const membership = memberships.find(m => m.userId === userId);
         return membership?.role === 'admin' ? 'Admin' : 'Member';
     };
@@ -208,7 +245,14 @@ export const HouseholdSettings = () => {
 
                     <TouchableOpacity
                         style={styles.editButton}
-                        onPress={() => setIsEditProfileVisible(true)}
+                        onPress={() => {
+                            if (isUserAnonymous) {
+                                setAuthGateAction('settings');
+                                setShowAuthGate(true);
+                                return;
+                            }
+                            setIsEditProfileVisible(true);
+                        }}
                     >
                         <Feather name="edit-2" size={16} color={COLORS.white} />
                         <Text style={styles.editButtonText}>Edit House</Text>
@@ -248,7 +292,14 @@ export const HouseholdSettings = () => {
                     {/* Add Member Row */}
                     <TouchableOpacity
                         style={[styles.memberRow, styles.addMemberRow]}
-                        onPress={() => setIsInviteModalVisible(true)}
+                        onPress={() => {
+                            if (isUserAnonymous) {
+                                setAuthGateAction('invite');
+                                setShowAuthGate(true);
+                                return;
+                            }
+                            setIsInviteModalVisible(true);
+                        }}
                     >
                         <View style={styles.memberInfo}>
                             <View style={[styles.wifiIcon, styles.addMemberIcon]}>
@@ -546,22 +597,42 @@ export const HouseholdSettings = () => {
                             </TouchableOpacity>
                         </View>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('promote')}>
-                            <Feather name="shield" size={20} color={COLORS.textPrimary} />
-                            <Text style={styles.menuItemText}>Promote to Admin</Text>
-                        </TouchableOpacity>
+                        {/* Owner badge if member is the owner */}
+                        {selectedMember && isOwner(selectedMember.id) && (
+                            <View style={styles.ownerBadge}>
+                                <Feather name="star" size={16} color={COLORS.warning} />
+                                <Text style={styles.ownerBadgeText}>
+                                    This is the household owner and cannot be removed or demoted.
+                                </Text>
+                            </View>
+                        )}
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('nudge')}>
-                            <Feather name="bell" size={20} color={COLORS.textPrimary} />
-                            <Text style={styles.menuItemText}>Send Nudge</Text>
-                        </TouchableOpacity>
+                        {/* Show promote if member is NOT an admin and NOT the owner */}
+                        {selectedMember && !isAdmin(selectedMember.id) && !isOwner(selectedMember.id) && (
+                            <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('promote')}>
+                                <Feather name="shield" size={20} color={COLORS.textPrimary} />
+                                <Text style={styles.menuItemText}>Promote to Admin</Text>
+                            </TouchableOpacity>
+                        )}
 
-                        <View style={styles.modalDivider} />
+                        {/* Show demote if member IS an admin but NOT the owner */}
+                        {selectedMember && isAdmin(selectedMember.id) && !isOwner(selectedMember.id) && (
+                            <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('demote')}>
+                                <Feather name="shield-off" size={20} color={COLORS.warning} />
+                                <Text style={[styles.menuItemText, { color: COLORS.warning }]}>Demote from Admin</Text>
+                            </TouchableOpacity>
+                        )}
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('remove')}>
-                            <Feather name="user-x" size={20} color={COLORS.error} />
-                            <Text style={[styles.menuItemText, { color: COLORS.error }]}>Remove from House</Text>
-                        </TouchableOpacity>
+                        {/* Show remove if NOT the owner */}
+                        {selectedMember && !isOwner(selectedMember.id) && (
+                            <>
+                                <View style={styles.modalDivider} />
+                                <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('remove')}>
+                                    <Feather name="user-x" size={20} color={COLORS.error} />
+                                    <Text style={[styles.menuItemText, { color: COLORS.error }]}>Remove from House</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
                     </Pressable>
                 </TouchableOpacity>
             </Modal>
@@ -606,6 +677,13 @@ export const HouseholdSettings = () => {
                     </Pressable>
                 </TouchableOpacity>
             </Modal>
+
+            {/* Auth Gate Modal */}
+            <AuthGateModal
+                visible={showAuthGate}
+                onClose={() => setShowAuthGate(false)}
+                action={authGateAction}
+            />
         </ScrollView>
     );
 };
@@ -889,6 +967,21 @@ const styles = StyleSheet.create({
         fontSize: FONT_SIZE.md,
         color: COLORS.textPrimary,
         fontWeight: '500',
+    },
+    ownerBadge: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: SPACING.sm,
+        backgroundColor: COLORS.warning + '15',
+        padding: SPACING.md,
+        borderRadius: BORDER_RADIUS.md,
+        marginBottom: SPACING.md,
+    },
+    ownerBadgeText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.warning,
+        flex: 1,
+        lineHeight: 18,
     },
     modalDivider: {
         height: 1,

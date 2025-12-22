@@ -15,3 +15,5 @@ export { HouseholdSetupScreen } from './HouseholdSetupScreen';
 export { SignInScreen } from './SignInScreen';
 export { HouseholdPreviewScreen } from './HouseholdPreviewScreen';
 export { NeedsAttentionScreen } from './NeedsAttentionScreen';
+export { NudgeScreen } from './NudgeScreen';
+export { ChoreManagementScreen } from './ChoreManagementScreen';
