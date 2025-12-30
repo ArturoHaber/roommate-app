@@ -14,7 +14,9 @@ import {
   TextInput,
   Linking,
   Switch,
+  DeviceEventEmitter,
 } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { Card, Avatar, HouseholdSettings, LinkAccountModal, AuthGateModal, useIsAnonymous } from '../components';
 import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from '../constants/theme';
@@ -68,6 +70,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
 );
 
 export const SettingsTab: React.FC = () => {
+  const isFocused = useIsFocused();
   const { user, signOut, updateProfile, deleteAccount } = useAuthStore();
   const { household, leaveHousehold } = useHouseholdStore();
   const { getLeaderboard } = useChoreStore();
@@ -79,6 +82,15 @@ export const SettingsTab: React.FC = () => {
   const [editEmail, setEditEmail] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('');
   const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
+
+  // Manage global swipe lock
+  React.useEffect(() => {
+    if (isFocused && isNotificationsVisible) {
+      DeviceEventEmitter.emit('LOCK_SWIPE');
+    } else {
+      DeviceEventEmitter.emit('UNLOCK_SWIPE');
+    }
+  }, [isFocused, isNotificationsVisible]);
   const [emailVisible, setEmailVisible] = useState(true);
 
   // Notification preferences from Supabase (with local state fallback)
@@ -97,14 +109,7 @@ export const SettingsTab: React.FC = () => {
   // Check if user is anonymous
   const isUserAnonymous = useIsAnonymous();
 
-  // Show full-screen notification settings when active
-  if (isNotificationsVisible) {
-    return (
-      <NotificationSettingsScreen
-        onBack={() => setIsNotificationsVisible(false)}
-      />
-    );
-  }
+  // (Removed early return to preserve scroll state)
 
   if (!user) return null;
 
@@ -526,6 +531,15 @@ export const SettingsTab: React.FC = () => {
         onClose={() => setShowAuthGate(false)}
         action="settings"
       />
+
+      {/* Notification Settings Overlay */}
+      {isNotificationsVisible && (
+        <View style={styles.notificationOverlay}>
+          <NotificationSettingsScreen
+            onBack={() => setIsNotificationsVisible(false)}
+          />
+        </View>
+      )}
 
     </SafeAreaView>
   );
@@ -1019,5 +1033,10 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     fontWeight: '600',
     color: COLORS.primary,
+  },
+  notificationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    backgroundColor: COLORS.background,
   },
 });

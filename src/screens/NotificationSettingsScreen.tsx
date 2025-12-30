@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View,
     Text,
@@ -10,10 +10,21 @@ import {
     StatusBar,
     Alert,
     Platform,
+    Dimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+    useSharedValue,
+    useAnimatedStyle,
+    withSpring,
+    runOnJS,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { formatTimeForDisplay } from '../hooks/useNotificationPreferences';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface NotificationSettingsScreenProps {
     onBack: () => void;
@@ -62,14 +73,65 @@ export const NotificationSettingsScreen: React.FC<NotificationSettingsScreenProp
         }
     };
 
+    // Swipe-back gesture for iOS-style navigation
+    const swipeProgress = useSharedValue(0);
+
+    const triggerHaptic = useCallback(() => {
+        if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+    }, []);
+
+    const handleSwipeBack = useCallback(() => {
+        triggerHaptic();
+        onBack();
+    }, [triggerHaptic, onBack]);
+
+    const swipeBackGesture = Gesture.Pan()
+        .activeOffsetX(10) // Activate on simple right swipe > 10px
+        .failOffsetY([-15, 15])
+        .onUpdate((event) => {
+            if (event.translationX > 0) {
+                swipeProgress.value = Math.min(event.translationX / (SCREEN_WIDTH * 0.3), 1);
+            }
+        })
+        .onEnd((event) => {
+            const hasVelocity = event.velocityX > 300;
+            const hasDistance = event.translationX > SCREEN_WIDTH * 0.15;
+
+            if (hasVelocity || hasDistance) {
+                runOnJS(handleSwipeBack)();
+            }
+            swipeProgress.value = withSpring(0, { damping: 20, stiffness: 200 });
+        });
+
+    const glowStyle = useAnimatedStyle(() => ({
+        opacity: swipeProgress.value * 0.8,
+    }));
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="light-content" />
 
-            {/* Header */}
+            {/* Left edge swipe-back gesture zone - lowered zIndex */}
+            <GestureDetector gesture={swipeBackGesture}>
+                <Animated.View style={styles.swipeBackZone} />
+            </GestureDetector>
+
+            {/* Swipe-back glow effect */}
+            <Animated.View style={[styles.swipeBackGlow, glowStyle]} pointerEvents="none" />
+
+            {/* Header - higher zIndex to sit ABOVE swipe zone so button is clickable */}
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton} onPress={onBack}>
-                    <Feather name="arrow-left" size={22} color={COLORS.textPrimary} />
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={onBack}
+                    // Massive hit slop for the entire corner
+                    hitSlop={{ top: 30, bottom: 30, left: 30, right: 80 }}
+                >
+                    <View style={styles.backButtonTouchArea}>
+                        <Feather name="arrow-left" size={26} color={COLORS.textPrimary} />
+                    </View>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Notifications</Text>
                 <View style={styles.headerRight} />
@@ -496,6 +558,33 @@ const styles = StyleSheet.create({
         marginTop: SPACING.sm,
         marginLeft: SPACING.xs,
         fontStyle: 'italic',
+    },
+    // Swipe back styles
+    swipeBackZone: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 40,
+        zIndex: 50, // Lower than header (200) so back button works
+    },
+    swipeBackGlow: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: '#000',
+        zIndex: 90,
+    },
+    backButtonTouchArea: {
+        padding: 4,
+        backgroundColor: 'transparent',
+    },
+    backButton: {
+        // Match back button width
+        width: 80,
+        height: 50,
+        justifyContent: 'center',
+        paddingLeft: SPACING.lg,
+        marginLeft: -SPACING.lg, // Pull all the way to edge
+        marginVertical: -10, // Increase vertical touch area
     },
     footerText: {
         fontSize: FONT_SIZE.sm,

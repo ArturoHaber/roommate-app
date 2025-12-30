@@ -344,17 +344,15 @@ export const HouseholdSettings = () => {
                         <View style={styles.wifiContent}>
                             <Text style={styles.wifiLabel}>WiFi Network</Text>
                             <Text style={styles.wifiValue}>
-                                {getEssentialValue('wifi', 'WiFi Name', 'Tap edit to add')}
+                                {getEssentialValue('wifi', 'WiFi Name', 'Not set')}
                             </Text>
                         </View>
-                        {isCurrentUserAdmin && (
-                            <TouchableOpacity
-                                onPress={() => openEditEssential('wifi', 'WiFi Name', getEssentialValue('wifi', 'WiFi Name', ''))}
-                                style={styles.copyButton}
-                            >
-                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity
+                            onPress={() => openEditEssential('wifi', 'WiFi Name', getEssentialValue('wifi', 'WiFi Name', ''))}
+                            style={styles.copyButton}
+                        >
+                            <Feather name="edit-2" size={18} color={isCurrentUserAdmin ? COLORS.textSecondary : COLORS.gray600} />
+                        </TouchableOpacity>
                     </View>
                     <View style={styles.divider} />
                     <View style={styles.wifiRow}>
@@ -382,14 +380,12 @@ export const HouseholdSettings = () => {
                                 <Feather name="copy" size={18} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         )}
-                        {isCurrentUserAdmin && (
-                            <TouchableOpacity
-                                style={styles.copyButton}
-                                onPress={() => openEditEssential('wifi', 'Password', getEssentialValue('wifi', 'Password', ''))}
-                            >
-                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity
+                            style={styles.copyButton}
+                            onPress={() => openEditEssential('wifi', 'Password', getEssentialValue('wifi', 'Password', ''))}
+                        >
+                            <Feather name="edit-2" size={18} color={isCurrentUserAdmin ? COLORS.textSecondary : COLORS.gray600} />
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -429,14 +425,12 @@ export const HouseholdSettings = () => {
                                     <Feather name="copy" size={18} color={COLORS.textSecondary} />
                                 </TouchableOpacity>
                             )}
-                            {isCurrentUserAdmin && (
-                                <TouchableOpacity
-                                    onPress={() => openEditEssential('landlord', 'Number', getEssentialValue('landlord', 'Number', ''))}
-                                    style={styles.copyButton}
-                                >
-                                    <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                                </TouchableOpacity>
-                            )}
+                            <TouchableOpacity
+                                onPress={() => openEditEssential('landlord', 'Number', getEssentialValue('landlord', 'Number', ''))}
+                                style={styles.copyButton}
+                            >
+                                <Feather name="edit-2" size={18} color={isCurrentUserAdmin ? COLORS.textSecondary : COLORS.gray600} />
+                            </TouchableOpacity>
                         </View>
                     </View>
                 </View>

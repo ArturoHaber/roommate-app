@@ -3,7 +3,7 @@ import { NavigationContainer, DefaultTheme, useIsFocused } from '@react-navigati
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
-import { View, StyleSheet, StatusBar, ActivityIndicator, Linking, Platform } from 'react-native';
+import { View, StyleSheet, StatusBar, ActivityIndicator, Linking, Platform, DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TAB_COLORS, TAB_ORDER } from './src/constants/tabColors';
 import { COLORS } from './src/constants/theme';
@@ -141,6 +141,17 @@ function MainTabs() {
   const [currentTabIndex, setCurrentTabIndex] = useState(0);
   const [navigation, setNavigation] = useState<any>(null);
   const [SwipeGestureOverlay, setSwipeGestureOverlay] = useState<React.ComponentType<any> | null>(null);
+  const [isSwipeLocked, setIsSwipeLocked] = useState(false);
+
+  // Listen for swipe lock events (e.g. from Notification Settings)
+  useEffect(() => {
+    const lockSub = DeviceEventEmitter.addListener('LOCK_SWIPE', () => setIsSwipeLocked(true));
+    const unlockSub = DeviceEventEmitter.addListener('UNLOCK_SWIPE', () => setIsSwipeLocked(false));
+    return () => {
+      lockSub.remove();
+      unlockSub.remove();
+    };
+  }, []);
 
   // Load swipe overlay component
   useEffect(() => {
@@ -221,8 +232,8 @@ function MainTabs() {
         </Tab.Screen>
       </Tab.Navigator>
 
-      {/* Swipe overlay - only render when both component and navigation are ready */}
-      {SwipeGestureOverlay && navigation && (
+      {/* Swipe overlay - only render when both component and navigation are ready, and not locked */}
+      {SwipeGestureOverlay && navigation && !isSwipeLocked && (
         <SwipeGestureOverlay
           currentIndex={currentTabIndex}
           onNavigate={handleNavigate}
