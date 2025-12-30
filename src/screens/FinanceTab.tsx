@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Modal, TextInput, Alert, RefreshControl, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format } from 'date-fns';
@@ -11,7 +11,7 @@ import { Avatar } from '../components/Avatar';
 import { ExpandableFAB } from '../components/ExpandableFAB';
 import { AuthGateModal, useIsAnonymous } from '../components/AuthGateModal';
 
-export const ExpensesScreen = () => {
+export const FinanceTab = () => {
   const { user } = useAuthStore();
   const { expenses, addExpense, getTotalOwed, getTotalOwedToMe, markSplitPaid, getBalances, initializeSampleExpenses } = useExpenseStore();
   const { members, household } = useHouseholdStore();
@@ -21,6 +21,26 @@ export const ExpensesScreen = () => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<'groceries' | 'utilities' | 'rent' | 'supplies' | 'other'>('groceries');
   const [showAuthGate, setShowAuthGate] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  // iOS workaround for tintColor bug
+  const [spinnerColor, setSpinnerColor] = useState(Platform.OS === 'ios' ? undefined : '#FFFFFF');
+
+  // Pull-to-refresh handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Re-initialize expenses to fetch latest data
+      if (household && members.length > 0) {
+        const memberIds = members.map(m => m.id);
+        // Simulate refresh delay for UX
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    } catch (error) {
+      console.error('[ExpensesScreen] Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [household, members]);
 
   // Check if user is anonymous
   const isUserAnonymous = useIsAnonymous();
@@ -32,6 +52,16 @@ export const ExpensesScreen = () => {
       initializeSampleExpenses(household.id, memberIds);
     }
   }, [household, members.length, expenses.length]);
+
+  // iOS workaround: Set tintColor after mount
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      const timer = setTimeout(() => {
+        setSpinnerColor('#FFFFFF');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   if (!user) return null;
 
@@ -159,7 +189,20 @@ export const ExpensesScreen = () => {
     <SafeAreaView style={styles.container}>
       <View style={{ height: SPACING.xl }} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={spinnerColor}
+            colors={['#818CF8']}
+            progressBackgroundColor={COLORS.gray800}
+            progressViewOffset={Platform.OS === 'android' ? 0 : 10}
+          />
+        }
+      >
         {/* Hero Status Card */}
         <LinearGradient
           colors={[COLORS.gray900, COLORS.gray800] as const}

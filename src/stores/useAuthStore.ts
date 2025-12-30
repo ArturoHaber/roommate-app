@@ -16,7 +16,7 @@ interface AuthState {
   // Actions
   signUp: (name: string, email: string, password: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signInWithApple: (idToken: string) => Promise<boolean>;
+  signInWithApple: (idToken: string, nonce?: string) => Promise<boolean>;
   signInWithGoogle: (idToken: string, accessToken?: string) => Promise<boolean>;
   // Simple OAuth methods using Supabase's browser redirect
   signInWithOAuthGoogle: () => Promise<boolean>;
@@ -140,14 +140,15 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      // Sign in with Apple
-      signInWithApple: async (idToken: string) => {
+      // Sign in with Apple (native or web-based)
+      signInWithApple: async (idToken: string, nonce?: string) => {
         set({ isLoading: true, error: null });
 
         try {
           const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
             provider: 'apple',
             token: idToken,
+            nonce, // Required for native Apple Sign-In
           });
 
           if (authError) throw authError;
@@ -260,17 +261,34 @@ export const useAuthStore = create<AuthState>()(
             );
 
             if (result.type === 'success' && result.url) {
-              // Extract tokens from the URL and set session
+              // Supabase returns tokens as hash fragments, not query parameters
+              // URL format: cribup://auth-callback#access_token=...&refresh_token=...
               const url = new URL(result.url);
-              const accessToken = url.searchParams.get('access_token');
-              const refreshToken = url.searchParams.get('refresh_token');
+
+              // Parse hash fragment (tokens come after #)
+              const hashParams = new URLSearchParams(url.hash.substring(1));
+              let accessToken = hashParams.get('access_token');
+              let refreshToken = hashParams.get('refresh_token');
+
+              // Fallback: try query parameters (just in case)
+              if (!accessToken || !refreshToken) {
+                accessToken = url.searchParams.get('access_token');
+                refreshToken = url.searchParams.get('refresh_token');
+              }
 
               if (accessToken && refreshToken) {
                 await supabase.auth.setSession({
                   access_token: accessToken,
                   refresh_token: refreshToken,
                 });
+              } else {
+                console.warn('[GoogleOAuth] No tokens in callback URL:', result.url);
               }
+            } else if (result.type === 'cancel' || result.type === 'dismiss') {
+              // User cancelled - don't treat as error, just stop loading
+              console.log('[GoogleOAuth] User cancelled auth flow');
+              set({ isLoading: false });
+              return false;
             }
           }
 
@@ -311,17 +329,33 @@ export const useAuthStore = create<AuthState>()(
             );
 
             if (result.type === 'success' && result.url) {
-              // Extract tokens from the URL and set session
+              // Supabase returns tokens as hash fragments, not query parameters
               const url = new URL(result.url);
-              const accessToken = url.searchParams.get('access_token');
-              const refreshToken = url.searchParams.get('refresh_token');
+
+              // Parse hash fragment (tokens come after #)
+              const hashParams = new URLSearchParams(url.hash.substring(1));
+              let accessToken = hashParams.get('access_token');
+              let refreshToken = hashParams.get('refresh_token');
+
+              // Fallback: try query parameters (just in case)
+              if (!accessToken || !refreshToken) {
+                accessToken = url.searchParams.get('access_token');
+                refreshToken = url.searchParams.get('refresh_token');
+              }
 
               if (accessToken && refreshToken) {
                 await supabase.auth.setSession({
                   access_token: accessToken,
                   refresh_token: refreshToken,
                 });
+              } else {
+                console.warn('[AppleOAuth] No tokens in callback URL:', result.url);
               }
+            } else if (result.type === 'cancel' || result.type === 'dismiss') {
+              // User cancelled - don't treat as error, just stop loading
+              console.log('[AppleOAuth] User cancelled auth flow');
+              set({ isLoading: false });
+              return false;
             }
           }
 

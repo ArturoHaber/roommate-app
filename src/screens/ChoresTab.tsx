@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Modal, Alert, Dimensions, RefreshControl, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { format, isToday, isTomorrow, isPast, addDays } from 'date-fns';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
-import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData, NeedsAttentionCard, ChoresComp, HouseStatusHeader, HouseOverview } from '../components';
+import { Avatar, CookingModal, ActivityDetailModal, ActivityItem, CompleteSheet, LogSheet, ReportSheet, UnifiedTaskCard, TaskDetailModal, TaskDisplayData, NeedsAttentionCard, ChoresComp, HouseStatusHeader, HouseOverview, LogActivityButton } from '../components';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
@@ -23,10 +23,10 @@ interface Activity {
     target?: string;
 }
 
-export const HouseholdScreen = () => {
+export const ChoresTab = () => {
     const navigation = useNavigation();
     const { user } = useAuthStore();
-    const { chores, assignments, completeChore, getLeaderboard, fetchChores, fetchAssignments, seedTestChores } = useChoreStore();
+    const { chores, assignments, completeChore, getLeaderboard, fetchChores, fetchAssignments, seedTestChores, clearAllAssignments, reassignAllToMember, generateAssignments } = useChoreStore();
     const { members, household } = useHouseholdStore();
     const { nudges, sendNudge } = useNudgeStore();
 
@@ -39,6 +39,37 @@ export const HouseholdScreen = () => {
     const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
     const [selectedRoommate, setSelectedRoommate] = useState<typeof members[0] | null>(null);
     const [selectedTask, setSelectedTask] = useState<TaskDisplayData | null>(null);
+    const [devMenuVisible, setDevMenuVisible] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    // iOS workaround for tintColor bug
+    const [spinnerColor, setSpinnerColor] = useState(Platform.OS === 'ios' ? undefined : '#FFFFFF');
+
+    // Pull-to-refresh handler
+    const onRefresh = useCallback(async () => {
+        if (!household?.id) return;
+
+        setRefreshing(true);
+        try {
+            await Promise.all([
+                fetchChores(household.id),
+                fetchAssignments(household.id),
+            ]);
+        } catch (error) {
+            console.error('[HouseholdScreen] Refresh error:', error);
+        } finally {
+            setRefreshing(false);
+        }
+    }, [household?.id, fetchChores, fetchAssignments]);
+
+    // iOS workaround: Set tintColor after mount
+    useEffect(() => {
+        if (Platform.OS === 'ios') {
+            const timer = setTimeout(() => {
+                setSpinnerColor('#FFFFFF');
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, []);
 
     // Fetch chores from Supabase on mount
     useEffect(() => {
@@ -81,7 +112,7 @@ export const HouseholdScreen = () => {
 
     // Convert myAssignments to TaskDisplayData format with emoji styling
     const displayTasks = myAssignments.map(a => {
-        const style = getChoreStyle(a.name);
+        const style = getChoreStyle({ name: a.name, icon: a.icon });
         return {
             id: a.id,
             choreId: a.choreId,
@@ -239,24 +270,31 @@ export const HouseholdScreen = () => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <ScrollView
+                contentContainerStyle={styles.content}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={spinnerColor}
+                        colors={[COLORS.primary]}
+                        progressBackgroundColor={COLORS.gray800}
+                        progressViewOffset={Platform.OS === 'android' ? 0 : 10}
+                    />
+                }
+            >
 
                 {/* Header */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>Chores</Text>
                     <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                        {/* Dev: Add test data */}
+                        {/* Dev Menu Button */}
                         <TouchableOpacity
                             style={styles.headerButton}
-                            onPress={async () => {
-                                if (household?.id && members.length > 0) {
-                                    const memberIds = members.map(m => m.id);
-                                    await seedTestChores(household.id, memberIds);
-                                    Alert.alert('✅ Test Data Added!', '6 chores and assignments have been created.');
-                                }
-                            }}
+                            onPress={() => setDevMenuVisible(true)}
                         >
-                            <Feather name="database" size={20} color={COLORS.textSecondary} />
+                            <Feather name="terminal" size={20} color={COLORS.textSecondary} />
                         </TouchableOpacity>
                         {/* Component Gallery (Dev Audit) */}
                         <TouchableOpacity
@@ -282,6 +320,9 @@ export const HouseholdScreen = () => {
 
                 {/* Chores Component */}
                 <ChoresComp heightRatio={0.42} showHistory={false} />
+
+                {/* Log Activity Button */}
+                <LogActivityButton />
 
                 {/* Divider for clean separation */}
                 <View style={{ height: SPACING.xl }} />
@@ -530,6 +571,7 @@ export const HouseholdScreen = () => {
                     createdAt: new Date(),
                     room: selectedTask.room as any,
                     isActive: true,
+                    isPersonal: false,
                 } : null}
                 currentUser={user!}
                 onEdit={() => { }}
@@ -542,6 +584,139 @@ export const HouseholdScreen = () => {
                 onNudge={() => { }}
                 onSnitch={() => { }}
             />
+
+            {/* Dev Menu Modal */}
+            <Modal
+                visible={devMenuVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setDevMenuVisible(false)}
+            >
+                <View style={styles.devMenuOverlay}>
+                    <View style={styles.devMenuContainer}>
+                        <View style={styles.devMenuHeader}>
+                            <Text style={styles.devMenuTitle}>🛠️ Dev Menu</Text>
+                            <TouchableOpacity onPress={() => setDevMenuVisible(false)}>
+                                <Feather name="x" size={24} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.devMenuContent}>
+                            {/* Seed Test Data */}
+                            <TouchableOpacity
+                                style={styles.devMenuItem}
+                                onPress={async () => {
+                                    if (household?.id && user) {
+                                        const allMemberIds = [...new Set([user.id, ...members.map(m => m.id)])];
+                                        await seedTestChores(household.id, allMemberIds);
+                                        setDevMenuVisible(false);
+                                        Alert.alert('✓ Seeded', `Test chores added for ${allMemberIds.length} members`);
+                                    }
+                                }}
+                            >
+                                <Feather name="database" size={20} color={COLORS.primary} />
+                                <View style={styles.devMenuItemContent}>
+                                    <Text style={styles.devMenuItemTitle}>Seed Test Chores</Text>
+                                    <Text style={styles.devMenuItemDesc}>Add default chores with 7-day assignments</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            {/* Clear All Assignments */}
+                            <TouchableOpacity
+                                style={styles.devMenuItem}
+                                onPress={async () => {
+                                    console.log('[DevMenu] Clear All Assignments button pressed');
+                                    // Use window.confirm for web compatibility
+                                    const confirmed = window.confirm('Clear All Assignments?\n\nThis will delete all task assignments. Chore templates will remain.');
+                                    console.log('[DevMenu] User confirmed:', confirmed);
+                                    if (confirmed && household?.id) {
+                                        console.log('[DevMenu] Calling clearAllAssignments...');
+                                        await clearAllAssignments(household.id);
+                                        setDevMenuVisible(false);
+                                        alert('✓ Cleared - All assignments removed');
+                                    }
+                                }}
+                            >
+                                <Feather name="trash-2" size={20} color={COLORS.error} />
+                                <View style={styles.devMenuItemContent}>
+                                    <Text style={styles.devMenuItemTitle}>Clear All Assignments</Text>
+                                    <Text style={styles.devMenuItemDesc}>Remove all pending and completed tasks</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            {/* Regenerate Assignments */}
+                            <TouchableOpacity
+                                style={styles.devMenuItem}
+                                onPress={async () => {
+                                    if (household?.id) {
+                                        const today = new Date();
+                                        const nextWeek = addDays(today, 7);
+                                        await generateAssignments(household.id, today, nextWeek);
+                                        await fetchAssignments(household.id);
+                                        setDevMenuVisible(false);
+                                        Alert.alert('✓ Generated', 'Assignments created for next 7 days');
+                                    }
+                                }}
+                            >
+                                <Feather name="refresh-cw" size={20} color={COLORS.success} />
+                                <View style={styles.devMenuItemContent}>
+                                    <Text style={styles.devMenuItemTitle}>Regenerate Assignments</Text>
+                                    <Text style={styles.devMenuItemDesc}>Create new assignments for next 7 days</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            <View style={styles.devMenuDivider} />
+                            <Text style={styles.devMenuSectionTitle}>REASSIGN ALL TO:</Text>
+
+                            {/* Current User */}
+                            <TouchableOpacity
+                                style={styles.devMenuItem}
+                                onPress={async () => {
+                                    if (household?.id && user) {
+                                        await reassignAllToMember(household.id, user.id);
+                                        setDevMenuVisible(false);
+                                        Alert.alert('✓ Reassigned', `All pending tasks assigned to you`);
+                                    }
+                                }}
+                            >
+                                <Avatar name={user?.name || 'You'} color={user?.avatarColor || COLORS.primary} size="xs" />
+                                <View style={styles.devMenuItemContent}>
+                                    <Text style={styles.devMenuItemTitle}>{user?.name || 'You'} (Me)</Text>
+                                    <Text style={styles.devMenuItemDesc}>Assign all pending tasks to yourself</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            {/* Other Members */}
+                            {members.filter(m => m.id !== user?.id).map((member) => (
+                                <TouchableOpacity
+                                    key={member.id}
+                                    style={styles.devMenuItem}
+                                    onPress={async () => {
+                                        if (household?.id) {
+                                            await reassignAllToMember(household.id, member.id);
+                                            setDevMenuVisible(false);
+                                            Alert.alert('✓ Reassigned', `All pending tasks assigned to ${member.name}`);
+                                        }
+                                    }}
+                                >
+                                    <Avatar name={member.name} color={member.avatarColor || COLORS.gray500} size="xs" />
+                                    <View style={styles.devMenuItemContent}>
+                                        <Text style={styles.devMenuItemTitle}>{member.name}</Text>
+                                        <Text style={styles.devMenuItemDesc}>Assign all pending tasks to this member</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+
+                        <TouchableOpacity
+                            style={styles.devMenuCloseButton}
+                            onPress={() => setDevMenuVisible(false)}
+                        >
+                            <Text style={styles.devMenuCloseButtonText}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView >
     );
 };
@@ -1609,5 +1784,81 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '500',
         color: COLORS.primary,
+    },
+
+    // Dev Menu Styles
+    devMenuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        justifyContent: 'flex-end',
+    },
+    devMenuContainer: {
+        backgroundColor: COLORS.surface,
+        borderTopLeftRadius: BORDER_RADIUS.xl,
+        borderTopRightRadius: BORDER_RADIUS.xl,
+        maxHeight: Dimensions.get('window').height * 0.75,
+        paddingBottom: SPACING.xl,
+    },
+    devMenuHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: SPACING.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    devMenuTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+    },
+    devMenuContent: {
+        paddingHorizontal: SPACING.lg,
+    },
+    devMenuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: SPACING.md,
+        gap: SPACING.md,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    devMenuItemContent: {
+        flex: 1,
+    },
+    devMenuItemTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
+    },
+    devMenuItemDesc: {
+        fontSize: 13,
+        color: COLORS.textSecondary,
+    },
+    devMenuDivider: {
+        height: 2,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        marginVertical: SPACING.md,
+    },
+    devMenuSectionTitle: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: COLORS.textTertiary,
+        letterSpacing: 1,
+        marginBottom: SPACING.sm,
+    },
+    devMenuCloseButton: {
+        marginHorizontal: SPACING.lg,
+        marginTop: SPACING.md,
+        paddingVertical: SPACING.md,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: BORDER_RADIUS.md,
+        alignItems: 'center',
+    },
+    devMenuCloseButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
     },
 });

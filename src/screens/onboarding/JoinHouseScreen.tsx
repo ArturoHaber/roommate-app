@@ -17,7 +17,7 @@ import { useHouseholdStore } from '../../stores/useHouseholdStore';
 
 interface JoinHouseScreenProps {
     onBack: () => void;
-    onJoinSuccess: () => void;
+    onJoinSuccess: (householdData: { name: string; emoji: string; memberCount?: number; memberPreviews?: any[] }, inviteCode: string) => void;
 }
 
 export const JoinHouseScreen: React.FC<JoinHouseScreenProps> = ({
@@ -56,9 +56,13 @@ export const JoinHouseScreen: React.FC<JoinHouseScreenProps> = ({
                 return;
             }
 
-            // For anonymous users, we'll create a temporary local user and join
-            // The actual join will happen after they optionally sign in
-            onJoinSuccess();
+            // Pass household data back so App.tsx can store it as pendingHousehold
+            onJoinSuccess({
+                name: household.name,
+                emoji: household.emoji,
+                memberCount: household.member_count,
+                memberPreviews: household.member_previews,
+            }, code);
         } catch (err: any) {
             console.error('Join error:', err);
             setError(err.message || 'Failed to join. Check your code and try again.');

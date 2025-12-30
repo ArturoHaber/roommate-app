@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,6 +10,8 @@ import {
     Platform,
     ScrollView,
     ActivityIndicator,
+    Animated,
+    Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, FontAwesome } from '@expo/vector-icons';
@@ -41,6 +43,111 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     const [authMode, setAuthMode] = useState<AuthMode>('options');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Animated values for floating orbs
+    const orb1Anim = useRef(new Animated.Value(0)).current;
+    const orb2Anim = useRef(new Animated.Value(0)).current;
+    const orb3Anim = useRef(new Animated.Value(0)).current;
+    const orb4Anim = useRef(new Animated.Value(0)).current;
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        // Create smooth looping animations for each orb
+        const createFloatAnimation = (anim: Animated.Value, duration: number, delay: number = 0) => {
+            return Animated.loop(
+                Animated.sequence([
+                    Animated.timing(anim, {
+                        toValue: 1,
+                        duration: duration,
+                        easing: Easing.inOut(Easing.sin),
+                        useNativeDriver: true,
+                        delay,
+                    }),
+                    Animated.timing(anim, {
+                        toValue: 0,
+                        duration: duration,
+                        easing: Easing.inOut(Easing.sin),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+        };
+
+        // Create pulse animation for ambient glow
+        const pulseAnimation = Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulseAnim, {
+                    toValue: 1.15,
+                    duration: 3000,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(pulseAnim, {
+                    toValue: 1,
+                    duration: 3000,
+                    easing: Easing.inOut(Easing.ease),
+                    useNativeDriver: true,
+                }),
+            ])
+        );
+
+        // Start all animations with different durations for organic movement
+        const anim1 = createFloatAnimation(orb1Anim, 6000, 0);
+        const anim2 = createFloatAnimation(orb2Anim, 8000, 500);
+        const anim3 = createFloatAnimation(orb3Anim, 7000, 1000);
+        const anim4 = createFloatAnimation(orb4Anim, 5000, 300);
+
+        anim1.start();
+        anim2.start();
+        anim3.start();
+        anim4.start();
+        pulseAnimation.start();
+
+        return () => {
+            anim1.stop();
+            anim2.stop();
+            anim3.stop();
+            anim4.stop();
+            pulseAnimation.stop();
+        };
+    }, []);
+
+    // Interpolated translations for smooth floating motion
+    const orb1TranslateY = orb1Anim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -30],
+    });
+    const orb1TranslateX = orb1Anim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0, 15, 0],
+    });
+
+    const orb2TranslateY = orb2Anim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 25],
+    });
+    const orb2TranslateX = orb2Anim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0, -20, 0],
+    });
+
+    const orb3TranslateY = orb3Anim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -20],
+    });
+    const orb3TranslateX = orb3Anim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0, 25, 0],
+    });
+
+    const orb4TranslateY = orb4Anim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 35],
+    });
+    const orb4TranslateX = orb4Anim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0, -15, 0],
+    });
 
     const handleGuestSignIn = async () => {
         setIsLoading(true);
@@ -87,10 +194,53 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
                 style={StyleSheet.absoluteFillObject}
             />
 
-            {/* Ambient glows */}
-            <View style={styles.glowOrb1} />
-            <View style={styles.glowOrb2} />
-            <View style={styles.glowOrb3} />
+            {/* Animated ambient glows */}
+            <Animated.View
+                style={[
+                    styles.glowOrb1,
+                    {
+                        transform: [
+                            { translateY: orb1TranslateY },
+                            { translateX: orb1TranslateX },
+                            { scale: pulseAnim }
+                        ]
+                    }
+                ]}
+            />
+            <Animated.View
+                style={[
+                    styles.glowOrb2,
+                    {
+                        transform: [
+                            { translateY: orb2TranslateY },
+                            { translateX: orb2TranslateX },
+                        ]
+                    }
+                ]}
+            />
+            <Animated.View
+                style={[
+                    styles.glowOrb3,
+                    {
+                        transform: [
+                            { translateY: orb3TranslateY },
+                            { translateX: orb3TranslateX },
+                            { scale: pulseAnim }
+                        ]
+                    }
+                ]}
+            />
+            <Animated.View
+                style={[
+                    styles.glowOrb4,
+                    {
+                        transform: [
+                            { translateY: orb4TranslateY },
+                            { translateX: orb4TranslateX },
+                        ]
+                    }
+                ]}
+            />
 
             <SafeAreaView style={styles.safeArea}>
                 <KeyboardAvoidingView
@@ -257,6 +407,15 @@ const styles = StyleSheet.create({
         height: 150,
         borderRadius: 75,
         backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    },
+    glowOrb4: {
+        position: 'absolute',
+        top: height * 0.65,
+        right: width * 0.1,
+        width: 180,
+        height: 180,
+        borderRadius: 90,
+        backgroundColor: 'rgba(168, 85, 247, 0.08)',
     },
 
     // Back Button

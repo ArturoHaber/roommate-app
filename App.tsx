@@ -1,16 +1,27 @@
-import React, { useEffect, useState } from 'react';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { NavigationContainer, DefaultTheme, useIsFocused } from '@react-navigation/native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
-import { View, StyleSheet, StatusBar, ActivityIndicator, Linking } from 'react-native';
+import { View, StyleSheet, StatusBar, ActivityIndicator, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TAB_COLORS, TAB_ORDER } from './src/constants/tabColors';
+import { COLORS } from './src/constants/theme';
+
+// Try to import gesture handler, but gracefully handle if native module not available
+let GestureHandlerRootView: React.ComponentType<any> | null = null;
+try {
+  const gh = require('react-native-gesture-handler');
+  GestureHandlerRootView = gh.GestureHandlerRootView;
+} catch (e) {
+  console.warn('[App] react-native-gesture-handler not available, swipe disabled');
+}
 
 import {
-  HomeScreen,
-  HouseholdScreen,
-  ExpensesScreen,
-  ProfileScreen,
-  OnboardingScreen,
+  DashboardTab,
+  ChoresTab,
+  FinanceTab,
+  SettingsTab,
   ChoresCalendarScreen,
   HousePulseScreen,
   HouseBoardScreen,
@@ -23,7 +34,6 @@ import {
   NudgeScreen,
   ChoreManagementScreen,
 } from './src/screens';
-import { ChoresCalmScreen } from './src/screens/ChoresCalmScreen';
 import { ActivityHistoryScreen } from './src/screens/ActivityHistoryScreen';
 import { ComponentGalleryScreen } from './src/screens/ComponentGalleryScreen';
 // New onboarding screens
@@ -39,7 +49,9 @@ import {
 import { useAuthStore } from './src/stores/useAuthStore';
 import { useHouseholdStore } from './src/stores/useHouseholdStore';
 import { useChoreStore } from './src/stores/useChoreStore';
-import { COLORS } from './src/constants/theme';
+import { useNativeAppleAuth } from './src/hooks/useNativeAppleAuth';
+import { useNotifications } from './src/hooks/useNotifications';
+
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -61,7 +73,7 @@ const MyDarkTheme = {
 function DashboardStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="DashboardMain" component={HomeScreen} />
+      <Stack.Screen name="DashboardMain" component={DashboardTab} />
       <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="HousePulse" component={HousePulseScreen} />
       <Stack.Screen name="HouseBoard" component={HouseBoardScreen} />
@@ -70,23 +82,12 @@ function DashboardStack() {
   );
 }
 
-function ChoresStack() {
-  return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="ChoresMain" component={ChoresCalmScreen} />
-      <Stack.Screen name="ChoresOld" component={HouseholdScreen} />
-      <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
-      <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
-      <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
-      <Stack.Screen name="ChoreManagement" component={ChoreManagementScreen} />
-    </Stack.Navigator>
-  );
-}
+
 
 function OldStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="OldMain" component={HouseholdScreen} />
+      <Stack.Screen name="OldMain" component={ChoresTab} />
       <Stack.Screen name="ChoresCalendar" component={ChoresCalendarScreen} />
       <Stack.Screen name="ActivityHistory" component={ActivityHistoryScreen} />
       <Stack.Screen name="NeedsAttention" component={NeedsAttentionScreen} />
@@ -97,44 +98,137 @@ function OldStack() {
   );
 }
 
-function MainTabs() {
+// Animated screen wrapper for smooth tab transitions
+function AnimatedScreen({ children }: { children: React.ReactNode }) {
+  const isFocused = useIsFocused();
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.96);
+
+  useEffect(() => {
+    if (isFocused) {
+      opacity.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.ease) });
+      scale.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.back(1.2)) });
+    } else {
+      opacity.value = 0;
+      scale.value = 0.96;
+    }
+  }, [isFocused]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Feather.glyphMap = 'home';
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
 
-          if (route.name === 'Dashboard') {
-            iconName = 'grid';
-          } else if (route.name === 'Chores') {
-            iconName = 'check-square';
-          } else if (route.name === 'Expenses') {
-            iconName = 'dollar-sign';
-          } else if (route.name === 'Settings') {
-            iconName = 'settings';
+// Tab icon configuration
+const TAB_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
+  Dashboard: 'grid',
+  Chores: 'check-square',
+  Expenses: 'dollar-sign',
+  Settings: 'settings',
+};
+
+// Main Tabs with per-tab colors and swipe gesture
+function MainTabs() {
+  const [currentTabIndex, setCurrentTabIndex] = useState(0);
+  const [navigation, setNavigation] = useState<any>(null);
+  const [SwipeGestureOverlay, setSwipeGestureOverlay] = useState<React.ComponentType<any> | null>(null);
+
+  // Load swipe overlay component
+  useEffect(() => {
+    if (!GestureHandlerRootView) {
+      console.log('[MainTabs] Gesture handler not available, swipe disabled');
+      return;
+    }
+
+    import('./src/components/SwipeableTabView').then((module) => {
+      console.log('[MainTabs] Swipe overlay loaded');
+      setSwipeGestureOverlay(() => module.SwipeGestureOverlay);
+    }).catch((err) => {
+      console.warn('[MainTabs] Could not load swipe overlay:', err);
+    });
+  }, []);
+
+  // Navigation handler that swipe overlay will call
+  const handleNavigate = useCallback((tabName: string) => {
+    console.log('[MainTabs] Navigating to:', tabName);
+    if (navigation) {
+      navigation.navigate(tabName);
+    }
+  }, [navigation]);
+
+  return (
+    <View style={{ flex: 1 }}>
+      <Tab.Navigator
+        screenListeners={{
+          state: (e) => {
+            const newIndex = e.data?.state?.index ?? 0;
+            setCurrentTabIndex(newIndex);
+          },
+        }}
+        screenOptions={({ route, navigation: nav }) => {
+          // Store nav in ref first (refs don't cause re-render issues)
+          // Then trigger state update via effect below
+          if (!navigation && nav) {
+            // Use setTimeout to defer state update outside of render
+            setTimeout(() => setNavigation(nav), 0);
           }
+          return {
+            headerShown: false,
+            // No animation - instant transitions (animations cause white flash on dark theme)
+            animation: 'none',
+            sceneStyle: { backgroundColor: COLORS.background },
+            tabBarIcon: ({ focused, color, size }) => {
+              const iconName = TAB_ICONS[route.name] || 'circle';
+              const tabColor = TAB_COLORS[route.name as keyof typeof TAB_COLORS];
+              const activeColor = tabColor?.primary || COLORS.primary;
 
-          return (
-            <View style={[styles.tabIconContainer, focused && styles.activeTab]}>
-              <Feather name={iconName} size={size} color={color} />
-            </View>
-          );
-        },
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.gray400,
-        tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarBackground: () => (
-          <View style={styles.tabBarBackground} />
-        ),
-      })}
-    >
-      <Tab.Screen name="Dashboard" component={DashboardStack} />
-      <Tab.Screen name="Chores" component={OldStack} />
-      <Tab.Screen name="Expenses" component={ExpensesScreen} />
-      <Tab.Screen name="Settings" component={ProfileScreen} />
-    </Tab.Navigator>
+              return (
+                <View style={[styles.tabIconContainer, focused && { backgroundColor: activeColor + '15' }]}>
+                  <Feather name={iconName} size={size} color={focused ? activeColor : color} />
+                </View>
+              );
+            },
+            tabBarActiveTintColor: TAB_COLORS[route.name as keyof typeof TAB_COLORS]?.primary || COLORS.primary,
+            tabBarInactiveTintColor: COLORS.gray400,
+            tabBarStyle: styles.tabBar,
+            tabBarLabelStyle: styles.tabBarLabel,
+            tabBarBackground: () => (
+              <View style={styles.tabBarBackground} />
+            ),
+          };
+        }}
+      >
+        <Tab.Screen name="Dashboard">
+          {() => <AnimatedScreen><DashboardStack /></AnimatedScreen>}
+        </Tab.Screen>
+        <Tab.Screen name="Chores">
+          {() => <AnimatedScreen><OldStack /></AnimatedScreen>}
+        </Tab.Screen>
+        <Tab.Screen name="Expenses">
+          {() => <AnimatedScreen><FinanceTab /></AnimatedScreen>}
+        </Tab.Screen>
+        <Tab.Screen name="Settings">
+          {() => <AnimatedScreen><SettingsTab /></AnimatedScreen>}
+        </Tab.Screen>
+      </Tab.Navigator>
+
+      {/* Swipe overlay - only render when both component and navigation are ready */}
+      {SwipeGestureOverlay && navigation && (
+        <SwipeGestureOverlay
+          currentIndex={currentTabIndex}
+          onNavigate={handleNavigate}
+        />
+      )}
+    </View>
   );
 }
 
@@ -167,11 +261,25 @@ const PENDING_HOUSEHOLD_KEY = 'pending_household';
 export default function App() {
   const { isAuthenticated, isLoading, user, initializeAuth, signIn, signUp, signInWithOAuthGoogle, signInWithOAuthApple, signInAnonymously } = useAuthStore();
   const { household, fetchHousehold, createHousehold, joinHousehold, validateInvite } = useHouseholdStore();
+  const nativeAppleAuth = useNativeAppleAuth();
+
+  // Initialize push notifications
+  const notifications = useNotifications();
 
   // Onboarding flow state (persisted to survive OAuth redirects)
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('welcome');
   const [pendingHousehold, setPendingHousehold] = useState<PendingHousehold | null>(null);
   const [stateLoaded, setStateLoaded] = useState(false);
+
+  // Preview invite code - must be at top level before any early returns (Rules of Hooks)
+  const previewCode = React.useMemo(() => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }, []);
 
   // Load persisted pending household on mount
   useEffect(() => {
@@ -316,13 +424,16 @@ export default function App() {
     };
   }, [validateInvite]); // Added validateInvite to dependency array
 
-  // Reset to welcome on logout
+  // Reset to welcome on logout (only if no pending household AND not already in app)
   useEffect(() => {
-    if (!isAuthenticated && stateLoaded && !isLoading) {
-      // If user logs out, go back to initial screen
-      setOnboardingStep('welcome');
+    if (!isAuthenticated && stateLoaded && !isLoading && !pendingHousehold) {
+      // Only reset to welcome if there's no pending household data
+      // AND we're not already in the main app (to avoid resetting during account linking)
+      if (onboardingStep !== 'complete') {
+        setOnboardingStep('welcome');
+      }
     }
-  }, [isAuthenticated, stateLoaded, isLoading]);
+  }, [isAuthenticated, stateLoaded, isLoading, pendingHousehold, onboardingStep]);
 
   // Skip to complete if already has household
   useEffect(() => {
@@ -379,8 +490,17 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <JoinHouseScreen
           onBack={() => setOnboardingStep('welcome')}
-          onJoinSuccess={() => {
-            // After joining, go straight to sign-in
+          onJoinSuccess={(householdData, inviteCode) => {
+            // Store the validated household data so we can join after sign-in
+            setPendingHousehold({
+              name: householdData.name,
+              emoji: householdData.emoji,
+              isJoining: true,
+              inviteCode: inviteCode,
+              memberCount: householdData.memberCount,
+              memberPreviews: householdData.memberPreviews,
+            });
+            // Then go to sign-in
             setOnboardingStep('signin');
           }}
         />
@@ -408,20 +528,20 @@ export default function App() {
     );
   }
 
+
+
   // Screen 4: Invite Roommates (skippable)
   if (onboardingStep === 'invite') {
-    // Generate a temporary invite code (will be replaced with real one after household creation)
-    const tempCode = 'XXXXXX'; // Placeholder - real code comes after household creation
-
     return (
       <>
         <StatusBar barStyle="light-content" />
         <InviteRoommatesScreen
-          inviteCode={tempCode}
+          inviteCode={previewCode}
           houseName={pendingHousehold?.name || 'Your House'}
           onBack={() => setOnboardingStep('house-basics')}
           onContinue={() => setOnboardingStep('chores-starter')}
           onSkip={() => setOnboardingStep('chores-starter')}
+          isPreview={true}
         />
       </>
     );
@@ -484,7 +604,12 @@ export default function App() {
             if (method === 'google') {
               await signInWithOAuthGoogle();
             } else if (method === 'apple') {
-              await signInWithOAuthApple();
+              // Use native Apple Sign In on iOS, fallback to browser OAuth on web
+              if (Platform.OS === 'ios') {
+                await nativeAppleAuth.signIn();
+              } else {
+                await signInWithOAuthApple();
+              }
             } else if (method === 'email' && email && password) {
               // Try sign in first, then sign up if fails
               const signedIn = await signIn(email, password);
@@ -499,12 +624,16 @@ export default function App() {
     );
   }
 
-  // Main app
+  // Main app - Use GestureHandlerRootView if available, otherwise fallback to View
+  const Wrapper = GestureHandlerRootView || View;
+
   return (
-    <NavigationContainer theme={MyDarkTheme}>
-      <StatusBar barStyle="light-content" />
-      <MainTabs />
-    </NavigationContainer>
+    <Wrapper style={{ flex: 1 }}>
+      <NavigationContainer theme={MyDarkTheme}>
+        <StatusBar barStyle="light-content" />
+        <MainTabs />
+      </NavigationContainer>
+    </Wrapper>
   );
 }
 
@@ -522,10 +651,21 @@ const styles = StyleSheet.create({
     right: 0,
   },
   tabBarBackground: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.gray900,
     borderTopWidth: 1,
     borderTopColor: COLORS.gray800,
+  },
+  tabBarContent: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabBarLabel: {
     fontSize: 11,

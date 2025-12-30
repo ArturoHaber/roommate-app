@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
 import { AuthOptions } from './auth/AuthOptions';
+import { useNativeAppleAuth } from '../hooks/useNativeAppleAuth';
 
 type GateAction = 'invite' | 'nudge' | 'expense' | 'settings';
 
@@ -50,6 +51,7 @@ const ACTION_MESSAGES: Record<GateAction, { title: string; subtitle: string; ico
 
 export const AuthGateModal = ({ visible, onClose, action }: AuthGateModalProps) => {
     const { linkAccount, signInWithOAuthGoogle, signInWithOAuthApple, isLoading, error, clearError } = useAuthStore();
+    const nativeAppleAuth = useNativeAppleAuth();
 
     const [mode, setMode] = useState<'options' | 'email'>('options');
     const [name, setName] = useState('');
@@ -74,8 +76,14 @@ export const AuthGateModal = ({ visible, onClose, action }: AuthGateModalProps) 
     };
 
     const handleAppleSignIn = async () => {
-        const success = await signInWithOAuthApple();
-        if (success) onClose();
+        // Use native Apple Sign In on iOS, fallback to browser OAuth on web
+        if (Platform.OS === 'ios') {
+            const success = await nativeAppleAuth.signIn();
+            if (success) onClose();
+        } else {
+            const success = await signInWithOAuthApple();
+            if (success) onClose();
+        }
     };
 
     const handleClose = () => {

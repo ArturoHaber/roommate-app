@@ -18,6 +18,7 @@ interface InviteRoommatesScreenProps {
     onBack: () => void;
     onContinue: () => void;
     onSkip: () => void;
+    isPreview?: boolean;
 }
 
 export const InviteRoommatesScreen: React.FC<InviteRoommatesScreenProps> = ({
@@ -26,16 +27,34 @@ export const InviteRoommatesScreen: React.FC<InviteRoommatesScreenProps> = ({
     onBack,
     onContinue,
     onSkip,
+    isPreview = false,
 }) => {
     const [copied, setCopied] = React.useState(false);
 
     const handleCopyCode = async () => {
+        if (isPreview) {
+            // In preview mode, show a message that real code comes after signup
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+            return;
+        }
         await Clipboard.setStringAsync(inviteCode);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
     const handleShare = async () => {
+        if (isPreview) {
+            // In preview mode, just show the share sheet with preview message
+            try {
+                await Share.share({
+                    message: `I'm setting up "${houseName}" on CribUp! I'll send you the real invite code once I finish signing up. 🏠`,
+                });
+            } catch (error) {
+                console.error('Share error:', error);
+            }
+            return;
+        }
         try {
             await Share.share({
                 message: `Join "${houseName}" on CribUp! Use code: ${inviteCode}\n\nDownload the app: https://cribup.app`,
@@ -71,14 +90,18 @@ export const InviteRoommatesScreen: React.FC<InviteRoommatesScreenProps> = ({
 
                 <Text style={styles.title}>Invite Your Roommates</Text>
                 <Text style={styles.subtitle}>
-                    Share this code so they can join {houseName}
+                    {isPreview
+                        ? `Let your roommates know you're setting up ${houseName}!`
+                        : `Share this code so they can join ${houseName}`}
                 </Text>
 
                 {/* Code Display */}
                 <View style={styles.codeContainer}>
-                    <Text style={styles.codeLabel}>Invite Code</Text>
-                    <View style={styles.codeBox}>
-                        <Text style={styles.codeText}>{inviteCode}</Text>
+                    <Text style={styles.codeLabel}>
+                        {isPreview ? 'Preview Code' : 'Invite Code'}
+                    </Text>
+                    <View style={[styles.codeBox, isPreview && { borderStyle: 'dashed' }]}>
+                        <Text style={[styles.codeText, isPreview && { opacity: 0.6 }]}>{inviteCode}</Text>
                         <TouchableOpacity
                             style={styles.copyButton}
                             onPress={handleCopyCode}
@@ -91,21 +114,27 @@ export const InviteRoommatesScreen: React.FC<InviteRoommatesScreenProps> = ({
                         </TouchableOpacity>
                     </View>
                     {copied && (
-                        <Text style={styles.copiedText}>Copied!</Text>
+                        <Text style={styles.copiedText}>
+                            {isPreview ? 'Real code after signup!' : 'Copied!'}
+                        </Text>
                     )}
                 </View>
 
                 {/* Share Button */}
                 <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
                     <Feather name="share" size={20} color={COLORS.primary} />
-                    <Text style={styles.shareButtonText}>Share Invite</Text>
+                    <Text style={styles.shareButtonText}>
+                        {isPreview ? 'Let Them Know' : 'Share Invite'}
+                    </Text>
                 </TouchableOpacity>
 
                 {/* Info */}
                 <View style={styles.infoBox}>
                     <Feather name="info" size={16} color={COLORS.textTertiary} />
                     <Text style={styles.infoText}>
-                        Don't worry, you can always invite more people later from Settings
+                        {isPreview
+                            ? "You'll get a real invite code after you sign up. You can share it from Settings anytime!"
+                            : "Don't worry, you can always invite more people later from Settings"}
                     </Text>
                 </View>
             </View>

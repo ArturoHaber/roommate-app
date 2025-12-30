@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Avatar } from './Avatar';
+import { getChoreEmoji } from '../utils/choreStyles';
 
 // Unified task data interface - single source of truth
 export interface TaskDisplayData {
@@ -49,7 +50,7 @@ export const UnifiedTaskCard: React.FC<UnifiedTaskCardProps> = ({
                 activeOpacity={0.7}
             >
                 <Text style={styles.gridEmoji}>
-                    {getEmojiForIcon(task.icon)}
+                    {getChoreEmoji(task)}
                 </Text>
                 <Text style={styles.gridName} numberOfLines={1}>
                     {task.name}
@@ -126,21 +127,6 @@ export const UnifiedTaskCard: React.FC<UnifiedTaskCardProps> = ({
             </View>
         </TouchableOpacity>
     );
-};
-
-// Helper to convert Feather icon names to emoji
-const getEmojiForIcon = (icon: string): string => {
-    const iconMap: Record<string, string> = {
-        'trash-2': '🗑️',
-        'coffee': '☕',
-        'droplet': '💧',
-        'wind': '💨',
-        'home': '🏠',
-        'shopping-bag': '🛒',
-        'refresh-cw': '♻️',
-        'layout': '🧹',
-    };
-    return iconMap[icon] || '✨';
 };
 
 const styles = StyleSheet.create({

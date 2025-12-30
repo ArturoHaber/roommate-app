@@ -63,13 +63,6 @@ export const AuthOptions: React.FC<AuthOptionsProps> = ({
                 </View>
             </TouchableOpacity>
 
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-            </View>
-
             {/* Email Button */}
             <TouchableOpacity
                 style={styles.emailButton}
@@ -127,23 +120,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
         color: '#FFFFFF',
-    },
-    // Divider
-    dividerContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginVertical: SPACING.lg,
-    },
-    dividerLine: {
-        flex: 1,
-        height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    },
-    dividerText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: 'rgba(255, 255, 255, 0.4)',
-        marginHorizontal: SPACING.md,
     },
     // Email Button
     emailButton: {

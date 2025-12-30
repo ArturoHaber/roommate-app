@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuthStore } from '../stores/useAuthStore';
 import { AuthOptions, EmailAuthForm } from './';
+import { useNativeAppleAuth } from '../hooks/useNativeAppleAuth';
 
 interface LinkAccountModalProps {
     visible: boolean;
@@ -14,6 +15,7 @@ interface LinkAccountModalProps {
 
 export const LinkAccountModal: React.FC<LinkAccountModalProps> = ({ visible, onClose, onSuccess, onDelete }) => {
     const { linkAccount, signInWithOAuthGoogle, signInWithOAuthApple, isLoading, error, clearError } = useAuthStore();
+    const nativeAppleAuth = useNativeAppleAuth();
     const [step, setStep] = useState<'prompt' | 'options' | 'email-form' | 'delete-confirm'>('prompt');
 
     const handleLink = async (email: string, password: string, name: string) => {
@@ -29,8 +31,16 @@ export const LinkAccountModal: React.FC<LinkAccountModalProps> = ({ visible, onC
         // might merge accounts if handled by Supabase correctly, or error if conflict.
         // Given current scope, we will try standard OAuth flow. Supabase usually handles linking if email matches.
         try {
-            if (method === 'google') await signInWithOAuthGoogle();
-            else await signInWithOAuthApple();
+            if (method === 'google') {
+                await signInWithOAuthGoogle();
+            } else if (method === 'apple') {
+                // Use native Apple Sign In on iOS, fallback to browser OAuth on web
+                if (Platform.OS === 'ios') {
+                    await nativeAppleAuth.signIn();
+                } else {
+                    await signInWithOAuthApple();
+                }
+            }
             // If successful, we assume linked or signed in
             onSuccess();
             handleClose();

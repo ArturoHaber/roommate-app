@@ -130,12 +130,12 @@ interface ScreenInfo {
 }
 
 const SCREENS: ScreenInfo[] = [
-    { name: 'HouseholdScreen', status: 'USED', description: 'Main Chores tab', size: '51KB', route: 'OldMain' },
-    { name: 'ExpensesScreen', status: 'USED', description: 'Expenses tab (use tab bar)', size: '21KB' },
-    { name: 'ProfileScreen', status: 'USED', description: 'Settings tab (use tab bar)', size: '24KB' },
-    { name: 'HomeScreen', status: 'USED', description: 'Dashboard tab (use tab bar)', size: '1KB' },
+    { name: 'ChoresTab (HouseholdScreen)', status: 'USED', description: 'Main Chores tab', size: '51KB', route: 'OldMain' },
+    { name: 'FinanceTab (ExpensesScreen)', status: 'USED', description: 'Finance tab (use tab bar)', size: '21KB' },
+    { name: 'SettingsTab (ProfileScreen)', status: 'USED', description: 'Settings tab (use tab bar)', size: '24KB' },
+    { name: 'DashboardTab (HomeScreen)', status: 'USED', description: 'Dashboard tab (use tab bar)', size: '2KB' },
     { name: 'ChoresCalendarScreen', status: 'USED', description: 'Calendar view', size: '14KB', route: 'ChoresCalendar' },
-    { name: 'HousePulseScreen', status: 'USED', description: 'House health dashboard', size: '30KB', route: 'HousePulse' },
+    { name: 'HousePulseScreen', status: 'USED', description: 'House health dashboard', size: '10KB', route: 'HousePulse' },
     { name: 'HouseBoardScreen', status: 'USED', description: 'Message board', size: '31KB', route: 'HouseBoard' },
     { name: 'NudgeScreen', status: 'USED', description: 'Send nudges', size: '27KB', route: 'NudgeScreen' },
     { name: 'NeedsAttentionScreen', status: 'USED', description: 'Overdue chores', size: '15KB', route: 'NeedsAttention' },
@@ -146,10 +146,6 @@ const SCREENS: ScreenInfo[] = [
     { name: 'HouseholdSetupScreen', status: 'USED', description: 'Create household (restart app)', size: '14KB' },
     { name: 'HouseholdPreviewScreen', status: 'USED', description: 'Preview join (restart app)', size: '12KB' },
     { name: 'SignInScreen', status: 'USED', description: 'Auth flow (restart app)', size: '17KB' },
-    { name: 'ChoresCalmScreen', status: 'CHECK', description: 'Alternate chores view with CribUp header', size: '26KB', route: 'ChoresOld' },
-    { name: 'ChoresScreen', status: 'UNUSED', description: 'Legacy chores screen - DELETE', size: '11KB' },
-    { name: 'OnboardingScreen', status: 'UNUSED', description: 'Old onboarding - DELETE', size: '23KB' },
-    { name: 'LogScreen', status: 'UNUSED', description: 'Has TS error - DELETE', size: '9KB' },
 ];
 
 type TabType = 'components' | 'screens';

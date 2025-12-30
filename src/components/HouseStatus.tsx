@@ -1,11 +1,13 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, PanResponder, Dimensions, Share } from 'react-native';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, PanResponder, Dimensions, Share, TextInput, Keyboard } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Avatar } from './Avatar';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
+import { useChoreStore } from '../stores/useChoreStore';
+import { calculateHouseHealth } from '../utils/houseHealthUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_DRAG = 120; // Max drag distance
@@ -42,6 +44,25 @@ export const HouseStatus = () => {
     // Real data from stores
     const { user, updateProfile } = useAuthStore();
     const { members } = useHouseholdStore();
+    const { chores, assignments } = useChoreStore();
+
+    // Calculate house health score with memoization
+    const houseHealth = useMemo(() => {
+        return calculateHouseHealth(assignments, chores);
+    }, [assignments, chores]);
+
+    // Animated value for score display
+    const animatedScore = useRef(new Animated.Value(houseHealth.score)).current;
+
+    // Animate score changes
+    useEffect(() => {
+        Animated.spring(animatedScore, {
+            toValue: houseHealth.score,
+            useNativeDriver: false,
+            tension: 50,
+            friction: 8,
+        }).start();
+    }, [houseHealth.score]);
 
     // Current user for display (authenticated user)
     const currentUser = user ? {
@@ -54,6 +75,10 @@ export const HouseStatus = () => {
 
     const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
     const [currentWisdom, setCurrentWisdom] = useState(ROOMMATE_WISDOM[0]);
+    const [selectedMember, setSelectedMember] = useState<any>(null); // null = list view, object = detail view
+    const [modalMode, setModalMode] = useState<'list' | 'emoji-picker' | 'member-actions'>('list');
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editedName, setEditedName] = useState('');
 
     // Safe guard: If no household (e.g. anonymous user just authenticated but household creation lagging), return empty
     // or a placeholder.
@@ -69,7 +94,58 @@ export const HouseStatus = () => {
 
     const handleStatusSelect = async (emoji: string) => {
         await updateProfile({ statusEmoji: emoji });
+        setModalMode('list');
+        setSelectedMember(null);
+    };
+
+    const handleStartNameEdit = () => {
+        setEditedName(currentUser.name);
+        setIsEditingName(true);
+    };
+
+    const handleSaveName = async () => {
+        const trimmedName = editedName.trim();
+        if (trimmedName && trimmedName !== currentUser.name) {
+            await updateProfile({ name: trimmedName });
+        }
+        setIsEditingName(false);
+        Keyboard.dismiss();
+    };
+
+    const handleCancelNameEdit = () => {
+        setIsEditingName(false);
+        setEditedName('');
+        Keyboard.dismiss();
+    };
+
+    const handleMemberPress = (member: any) => {
+        setSelectedMember(member);
+        if (member.id === currentUser.id) {
+            setModalMode('emoji-picker');
+        } else {
+            setModalMode('member-actions');
+        }
+    };
+
+    const handleBackToList = () => {
+        setModalMode('list');
+        setSelectedMember(null);
+    };
+
+    const handleCloseModal = () => {
         setIsStatusModalVisible(false);
+        setModalMode('list');
+        setSelectedMember(null);
+    };
+
+    const handleSendNudge = () => {
+        if (selectedMember) {
+            (navigation as any).navigate('NudgeScreen', {
+                targetUserId: selectedMember.id,
+                choreName: 'general',
+            });
+            handleCloseModal();
+        }
     };
 
     // Pick next quote (only once per drag)
@@ -84,30 +160,47 @@ export const HouseStatus = () => {
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => false,
+            onStartShouldSetPanResponderCapture: () => false,
+
             onMoveShouldSetPanResponder: (_, gestureState) => {
-                // Only respond to horizontal movement
-                return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 20;
+                // Claim horizontal swipes - be generous to avoid losing gestures
+                const isHorizontal = Math.abs(gestureState.dx) > 5 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+                return isHorizontal;
             },
+            onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+                // Capture more aggressively once we're clearly swiping horizontally
+                return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
+            },
+
+            // CRITICAL: Refuse to give up the gesture once we have it
+            onPanResponderTerminationRequest: () => false,
+
             onPanResponderGrant: () => {
                 hasPickedQuote.current = false; // Reset for new drag
                 Animated.spring(scale, {
                     toValue: 0.98,
-                    useNativeDriver: true, // Use native driver for performance
+                    useNativeDriver: true,
                     tension: 300,
-                    friction: 20,
+                    friction: 15,
                 }).start();
             },
             onPanResponderMove: (_, gestureState) => {
-                // X-axis only with increasing tension as you drag further
-                // Using a curve that slows down as you approach max
+                // X-axis only with rubber-band tension
                 const rawX = gestureState.dx;
 
                 // Only allow dragging left (negative X) to reveal right side
                 if (rawX < 0) {
-                    // Apply tension: the more you drag, the harder it gets
-                    const progress = Math.min(Math.abs(rawX) / 200, 1);
-                    const tension = 1 - (progress * 0.6); // Starts at 1, goes down to 0.4
-                    const dampedX = Math.max(-MAX_DRAG, rawX * tension);
+                    // Rubber-band effect: resistance increases past threshold
+                    const threshold = 60;
+                    const resistance = 0.4;
+                    let dampedX = rawX;
+
+                    if (Math.abs(rawX) > threshold) {
+                        const overflow = Math.abs(rawX) - threshold;
+                        dampedX = -(threshold + overflow * resistance);
+                    }
+
+                    dampedX = Math.max(-MAX_DRAG, dampedX);
                     translateX.setValue(dampedX);
 
                     // Trigger quote reveal when dragged enough
@@ -115,26 +208,46 @@ export const HouseStatus = () => {
                         pickNextQuote();
                     }
                 } else {
-                    // Small resistance for right drag
-                    translateX.setValue(rawX * 0.15);
+                    // Small rubber-band resistance for right drag
+                    translateX.setValue(rawX * 0.2);
                 }
             },
-            onPanResponderRelease: () => {
+            onPanResponderRelease: (_, gestureState) => {
                 hasPickedQuote.current = false; // Reset
 
-                // Spring back with elastic feel
+                // Spring back with velocity for natural feel
+                const velocity = gestureState.vx;
                 Animated.parallel([
                     Animated.spring(translateX, {
                         toValue: 0,
                         useNativeDriver: true,
-                        tension: 60,
-                        friction: 8,
+                        velocity: -velocity * 0.5,
+                        tension: 180,
+                        friction: 12,
                     }),
                     Animated.spring(scale, {
                         toValue: 1,
                         useNativeDriver: true,
                         tension: 200,
-                        friction: 15,
+                        friction: 12,
+                    }),
+                ]).start();
+            },
+            onPanResponderTerminate: () => {
+                // If gesture is interrupted, snap back smoothly
+                hasPickedQuote.current = false;
+                Animated.parallel([
+                    Animated.spring(translateX, {
+                        toValue: 0,
+                        useNativeDriver: true,
+                        tension: 200,
+                        friction: 12,
+                    }),
+                    Animated.spring(scale, {
+                        toValue: 1,
+                        useNativeDriver: true,
+                        tension: 200,
+                        friction: 12,
                     }),
                 ]).start();
             },
@@ -179,14 +292,51 @@ export const HouseStatus = () => {
                     {/* Header Section */}
                     <View style={styles.header}>
                         <View style={{ flex: 1, marginRight: SPACING.md }}>
-                            <Text
-                                style={styles.greeting}
-                                numberOfLines={1}
-                                adjustsFontSizeToFit
-                                minimumFontScale={0.8}
-                            >
-                                Good Morning, {currentUser.name}
-                            </Text>
+                            {isEditingName ? (
+                                <View style={styles.nameEditContainer}>
+                                    <TextInput
+                                        style={styles.nameInput}
+                                        value={editedName}
+                                        onChangeText={setEditedName}
+                                        autoFocus
+                                        selectTextOnFocus
+                                        onSubmitEditing={handleSaveName}
+                                        onBlur={handleSaveName}
+                                        returnKeyType="done"
+                                        placeholder="Your name"
+                                        placeholderTextColor={COLORS.textTertiary}
+                                    />
+                                    <TouchableOpacity onPress={handleSaveName} style={styles.nameEditButton}>
+                                        <Feather name="check" size={18} color={COLORS.success} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={handleCancelNameEdit} style={styles.nameEditButton}>
+                                        <Feather name="x" size={18} color={COLORS.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <TouchableOpacity
+                                    onPress={handleStartNameEdit}
+                                    style={styles.greetingContainer}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text
+                                        style={styles.greetingPrefix}
+                                        numberOfLines={1}
+                                    >
+                                        Good Morning,{' '}
+                                    </Text>
+                                    <View style={styles.nameWrapper}>
+                                        <Text
+                                            style={styles.greeting}
+                                            numberOfLines={1}
+                                            adjustsFontSizeToFit
+                                            minimumFontScale={0.8}
+                                        >
+                                            {currentUser.name}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
                             <Text style={styles.houseName}>{household?.name || 'My Household'}</Text>
                         </View>
 
@@ -218,12 +368,26 @@ export const HouseStatus = () => {
                         activeOpacity={0.8}
                     >
                         <View style={styles.healthLeft}>
-                            <View style={styles.healthIconContainer}>
-                                <Feather name="activity" size={20} color={COLORS.success} />
-                            </View>
+                            <Animated.View style={[
+                                styles.healthIconContainer,
+                                {
+                                    backgroundColor: houseHealth.color + '20',
+                                    transform: [{
+                                        scale: animatedScore.interpolate({
+                                            inputRange: [0, 50, 100],
+                                            outputRange: [0.9, 1, 1.1],
+                                            extrapolate: 'clamp',
+                                        })
+                                    }]
+                                }
+                            ]}>
+                                <Feather name="activity" size={20} color={houseHealth.color} />
+                            </Animated.View>
                             <View>
                                 <Text style={styles.healthLabel}>HOUSE HEALTH</Text>
-                                <Text style={[styles.healthValue, { color: COLORS.success }]}>72% - Sparkling ✨</Text>
+                                <Text style={[styles.healthValue, { color: houseHealth.color }]}>
+                                    {houseHealth.score}% - {houseHealth.label} {houseHealth.emoji}
+                                </Text>
                             </View>
                         </View>
                         <View style={styles.healthRight}>
@@ -239,52 +403,136 @@ export const HouseStatus = () => {
                 visible={isStatusModalVisible}
                 transparent
                 animationType="fade"
-                onRequestClose={() => setIsStatusModalVisible(false)}
+                onRequestClose={handleCloseModal}
             >
                 <TouchableOpacity
                     style={styles.modalOverlay}
                     activeOpacity={1}
-                    onPress={() => setIsStatusModalVisible(false)}
+                    onPress={handleCloseModal}
                 >
-                    <View style={styles.modalContent}>
+                    <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+                        {/* Header */}
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Update Your Status</Text>
-                            <TouchableOpacity onPress={() => setIsStatusModalVisible(false)}>
+                            {modalMode !== 'list' ? (
+                                <TouchableOpacity onPress={handleBackToList} style={styles.backButton}>
+                                    <Feather name="arrow-left" size={20} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            ) : (
+                                <View style={{ width: 32 }} />
+                            )}
+                            <Text style={styles.modalTitle}>
+                                {modalMode === 'list' ? 'Household' :
+                                    modalMode === 'emoji-picker' ? 'Your Status' :
+                                        selectedMember?.name}
+                            </Text>
+                            <TouchableOpacity onPress={handleCloseModal}>
                                 <Feather name="x" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         </View>
 
-                        {/* Emoji Grid */}
-                        <View style={styles.emojiGrid}>
-                            {STATUS_EMOJIS.map((emoji) => (
+                        {/* LIST VIEW - All Members */}
+                        {modalMode === 'list' && (
+                            <View style={styles.roommatesList}>
+                                {/* Current User First */}
                                 <TouchableOpacity
-                                    key={emoji}
-                                    style={[
-                                        styles.emojiOption,
-                                        currentUser.emoji === emoji && styles.emojiOptionSelected
-                                    ]}
-                                    onPress={() => handleStatusSelect(emoji)}
+                                    style={[styles.roommateRow, styles.roommateRowSelf]}
+                                    onPress={() => handleMemberPress(currentUser)}
+                                    activeOpacity={0.7}
                                 >
-                                    <Text style={styles.emojiOptionText}>{emoji}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        <View style={styles.modalDivider} />
-
-                        {/* Roommates List */}
-                        <Text style={styles.sectionTitle}>Roommates</Text>
-                        <View style={styles.roommatesList}>
-                            {members.filter(m => m.id !== currentUser.id).map((member) => (
-                                <View key={member.id} style={styles.roommateRow}>
                                     <View style={styles.roommateInfo}>
-                                        <Avatar name={member.name} color={member.avatarColor || '#818CF8'} size="sm" />
-                                        <Text style={styles.roommateName}>{member.name}</Text>
+                                        <Avatar name={currentUser.name} color={currentUser.color} size="sm" />
+                                        <View>
+                                            <Text style={styles.roommateName}>{currentUser.name}</Text>
+                                            <Text style={styles.youLabel}>You • Tap to change status</Text>
+                                        </View>
                                     </View>
-                                    <Text style={styles.roommateEmoji}>{member.statusEmoji || '👀'}</Text>
+                                    <Text style={styles.roommateEmoji}>{currentUser.emoji}</Text>
+                                </TouchableOpacity>
+
+                                {/* Other Members */}
+                                {members.filter(m => m.id !== currentUser.id).map((member) => (
+                                    <TouchableOpacity
+                                        key={member.id}
+                                        style={styles.roommateRow}
+                                        onPress={() => handleMemberPress(member)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View style={styles.roommateInfo}>
+                                            <Avatar name={member.name} color={member.avatarColor || '#818CF8'} size="sm" />
+                                            <Text style={styles.roommateName}>{member.name}</Text>
+                                        </View>
+                                        <View style={styles.roommateRight}>
+                                            <Text style={styles.roommateEmoji}>{member.statusEmoji || '👀'}</Text>
+                                            <Feather name="chevron-right" size={16} color={COLORS.textTertiary} />
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* EMOJI PICKER - For Self */}
+                        {modalMode === 'emoji-picker' && (
+                            <View>
+                                <Text style={styles.pickerSubtitle}>How are you feeling?</Text>
+                                <View style={styles.emojiGrid}>
+                                    {STATUS_EMOJIS.map((emoji) => (
+                                        <TouchableOpacity
+                                            key={emoji}
+                                            style={[
+                                                styles.emojiOption,
+                                                currentUser.emoji === emoji && styles.emojiOptionSelected
+                                            ]}
+                                            onPress={() => handleStatusSelect(emoji)}
+                                        >
+                                            <Text style={styles.emojiOptionText}>{emoji}</Text>
+                                        </TouchableOpacity>
+                                    ))}
                                 </View>
-                            ))}
-                        </View>
+                            </View>
+                        )}
+
+                        {/* MEMBER ACTIONS - For Others */}
+                        {modalMode === 'member-actions' && selectedMember && (
+                            <View style={styles.memberActionsContainer}>
+                                {/* Member Info */}
+                                <View style={styles.memberInfoLarge}>
+                                    <Avatar name={selectedMember.name} color={selectedMember.avatarColor || '#818CF8'} size="lg" />
+                                    <Text style={styles.memberNameLarge}>{selectedMember.name}</Text>
+                                    <Text style={styles.memberStatusLarge}>{selectedMember.statusEmoji || '👀'}</Text>
+                                </View>
+
+                                <View style={styles.actionDivider} />
+
+                                {/* Actions */}
+                                <TouchableOpacity style={styles.actionButton} onPress={handleSendNudge}>
+                                    <View style={[styles.actionIcon, { backgroundColor: COLORS.primary + '20' }]}>
+                                        <Feather name="bell" size={20} color={COLORS.primary} />
+                                    </View>
+                                    <View style={styles.actionContent}>
+                                        <Text style={styles.actionTitle}>Send Nudge</Text>
+                                        <Text style={styles.actionDesc}>Remind them about a task</Text>
+                                    </View>
+                                    <Feather name="chevron-right" size={20} color={COLORS.textTertiary} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.actionButton}
+                                    onPress={() => {
+                                        // Could add more actions here like view profile, etc.
+                                        handleCloseModal();
+                                    }}
+                                >
+                                    <View style={[styles.actionIcon, { backgroundColor: COLORS.gray700 }]}>
+                                        <Feather name="user" size={20} color={COLORS.textSecondary} />
+                                    </View>
+                                    <View style={styles.actionContent}>
+                                        <Text style={styles.actionTitle}>View Activity</Text>
+                                        <Text style={styles.actionDesc}>See their recent tasks</Text>
+                                    </View>
+                                    <Feather name="chevron-right" size={20} color={COLORS.textTertiary} />
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
                 </TouchableOpacity>
             </Modal>
@@ -524,16 +772,134 @@ const styles = StyleSheet.create({
         padding: SPACING.md,
         borderRadius: BORDER_RADIUS.lg,
     },
+    roommateRowSelf: {
+        borderWidth: 1,
+        borderColor: COLORS.primary + '50',
+        backgroundColor: COLORS.primary + '10',
+    },
     roommateInfo: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: SPACING.md,
     },
+    roommateRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.sm,
+    },
     roommateName: {
         color: COLORS.textPrimary,
         fontWeight: '600',
     },
+    youLabel: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
     roommateEmoji: {
         fontSize: 20,
+    },
+    // Back button in header
+    backButton: {
+        padding: 4,
+    },
+    // Emoji picker subtitle
+    pickerSubtitle: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        marginBottom: SPACING.lg,
+    },
+    // Member actions view
+    memberActionsContainer: {
+        gap: SPACING.md,
+    },
+    memberInfoLarge: {
+        alignItems: 'center',
+        paddingVertical: SPACING.lg,
+        gap: SPACING.sm,
+    },
+    memberNameLarge: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginTop: SPACING.sm,
+    },
+    memberStatusLarge: {
+        fontSize: 28,
+    },
+    actionDivider: {
+        height: 1,
+        backgroundColor: COLORS.gray800,
+        marginVertical: SPACING.sm,
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.md,
+        padding: SPACING.md,
+        backgroundColor: COLORS.gray800,
+        borderRadius: BORDER_RADIUS.lg,
+    },
+    actionIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: BORDER_RADIUS.full,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    actionContent: {
+        flex: 1,
+    },
+    actionTitle: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+    },
+    actionDesc: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
+    // Name editing styles
+    greetingContainer: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
+    },
+    greetingPrefix: {
+        fontSize: FONT_SIZE.xxl,
+        fontWeight: '800',
+        color: COLORS.textPrimary,
+        letterSpacing: -0.5,
+    },
+    nameWrapper: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+    },
+    editIcon: {
+        marginLeft: 1,
+        marginTop: -2,
+    },
+    nameEditContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.sm,
+        marginBottom: 2,
+    },
+    nameInput: {
+        flex: 1,
+        fontSize: FONT_SIZE.xl,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        backgroundColor: COLORS.gray700,
+        borderRadius: BORDER_RADIUS.md,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.sm,
+        borderWidth: 1,
+        borderColor: COLORS.primary,
+    },
+    nameEditButton: {
+        padding: SPACING.xs,
     },
 });

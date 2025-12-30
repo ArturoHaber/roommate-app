@@ -523,6 +523,14 @@ export const useHouseholdStore = create<HouseholdState>()(
             return;
           }
 
+          // Check if current user is admin (client-side check before DB call)
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          const currentUserMembership = memberships.find(m => m.userId === authUser?.id);
+          if (currentUserMembership?.role !== 'admin') {
+            set({ error: 'Only admins can promote members', isLoading: false });
+            return;
+          }
+
           // Update role to admin in database
           const { error } = await supabase
             .from('household_members')
@@ -553,6 +561,14 @@ export const useHouseholdStore = create<HouseholdState>()(
           const { household, memberships } = get();
           if (!household) {
             set({ isLoading: false });
+            return;
+          }
+
+          // Check if current user is admin (client-side check)
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          const currentUserMembership = memberships.find(m => m.userId === authUser?.id);
+          if (currentUserMembership?.role !== 'admin') {
+            set({ error: 'Only admins can demote members', isLoading: false });
             return;
           }
 
@@ -592,6 +608,20 @@ export const useHouseholdStore = create<HouseholdState>()(
           const { household, members, memberships } = get();
           if (!household) {
             set({ isLoading: false });
+            return;
+          }
+
+          // Check if current user is admin (client-side check)
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          const currentUserMembership = memberships.find(m => m.userId === authUser?.id);
+          if (currentUserMembership?.role !== 'admin') {
+            set({ error: 'Only admins can remove members', isLoading: false });
+            return;
+          }
+
+          // Cannot remove the owner
+          if (household.createdBy === userId) {
+            set({ error: 'Cannot remove the household owner', isLoading: false });
             return;
           }
 

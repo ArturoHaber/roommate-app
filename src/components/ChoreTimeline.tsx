@@ -10,15 +10,17 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useChoreStore } from '../stores/useChoreStore';
 import { useNudgeStore } from '../stores/useNudgeStore';
+import { getChoreStyle } from '../utils/choreStyles';
 
 export const ChoreTimeline = () => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
     const [selectedChore, setSelectedChore] = useState<any>(null);
+    const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
 
     const { user } = useAuthStore();
     const { members, household } = useHouseholdStore();
-    const { chores, assignments, fetchChores, fetchAssignments, getAssignmentsForDate, getChoreById, completeChore } = useChoreStore();
+    const { chores, assignments, fetchChores, fetchAssignments, getEffectiveAssignmentsForDate, getChoreById, completeChore } = useChoreStore();
     const { sendNudge } = useNudgeStore();
 
     // Fetch chores when household changes
@@ -43,16 +45,22 @@ export const ChoreTimeline = () => {
     };
 
     // Get assignments for a specific date, enriched with chore details
+    // Uses getEffectiveAssignmentsForDate which rolls overdue items to today
+    // Only shows chores assigned to the current user
     const getChoresForDate = (date: Date) => {
-        const dayAssignments = getAssignmentsForDate(date);
+        const dayAssignments = getEffectiveAssignmentsForDate(date)
+            .filter(a => a.assignedTo === user.id); // Only my chores
         return dayAssignments.map(assignment => {
             const chore = getChoreById(assignment.choreId);
+            const style = getChoreStyle(chore || { name: 'Task' }); // Single source of truth
             return {
                 id: assignment.id,
                 assignmentId: assignment.id,
                 choreId: assignment.choreId,
                 name: chore?.name || 'Unknown Chore',
-                icon: chore?.icon || 'check-circle',
+                emoji: style.emoji, // Use emoji from single source of truth
+                color: style.color,
+                bgColor: style.bgColor,
                 points: chore?.pointValue || 1,
                 assignedTo: assignment.assignedTo,
                 dueDate: assignment.dueDate,
@@ -103,36 +111,33 @@ export const ChoreTimeline = () => {
         }
 
         return (
-            <View style={styles.choreList}>
-                {chores.map((chore) => {
-                    const assignee = members.find(m => m.id === chore.assignedTo);
-                    const isMe = chore.assignedTo === user.id;
-
-                    return (
+            <View style={styles.choreListContainer}>
+                <ScrollView
+                    style={styles.choreListScroll}
+                    contentContainerStyle={styles.choreListContent}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled={true}
+                >
+                    {chores.map((chore) => (
                         <TouchableOpacity
                             key={chore.id}
-                            style={[styles.choreCard, isMe && styles.myChoreCard]}
-                            onPress={() => setSelectedChore({ ...chore, assignee })}
+                            style={[styles.choreCard, styles.myChoreCard]}
+                            onPress={() => {
+                                // Find the real chore and assignment
+                                const realChore = getChoreById(chore.choreId);
+                                const realAssignment = assignments.find(a => a.id === chore.assignmentId);
+                                setSelectedChore(realChore);
+                                setSelectedAssignment(realAssignment);
+                            }}
                         >
-                            <View style={[styles.choreIcon, { backgroundColor: isMe ? COLORS.primary + '20' : COLORS.gray700 }]}>
-                                <Feather
-                                    name={(chore.icon || 'check-circle') as any}
-                                    size={20}
-                                    color={isMe ? COLORS.primary : COLORS.textSecondary}
-                                />
+                            <View style={[styles.choreIcon, { backgroundColor: chore.bgColor }]}>
+                                <Text style={{ fontSize: 20 }}>{chore.emoji}</Text>
                             </View>
                             <View style={styles.choreContent}>
-                                <Text style={[styles.choreTitle, isMe && styles.myChoreTitle]}>
+                                <Text style={[styles.choreTitle, styles.myChoreTitle]}>
                                     {chore.name}
                                 </Text>
-                                <View style={styles.assigneeRow}>
-                                    {assignee && (
-                                        <Avatar name={assignee.name} color={assignee.avatarColor} size="sm" />
-                                    )}
-                                    <Text style={styles.assigneeName}>
-                                        {isMe ? 'You' : assignee?.name || 'Unassigned'}
-                                    </Text>
-                                </View>
+                                <Text style={styles.assigneeName}>You</Text>
                             </View>
                             {chore.completed ? (
                                 <Feather name="check-circle" size={20} color={COLORS.success} />
@@ -140,8 +145,8 @@ export const ChoreTimeline = () => {
                                 <Feather name="chevron-right" size={20} color={COLORS.textSecondary} />
                             )}
                         </TouchableOpacity>
-                    );
-                })}
+                    ))}
+                </ScrollView>
             </View>
         );
     };
@@ -178,24 +183,29 @@ export const ChoreTimeline = () => {
             {/* Chore Detail Modal */}
             <TaskDetailModal
                 visible={!!selectedChore}
-                onClose={() => setSelectedChore(null)}
+                onClose={() => {
+                    setSelectedChore(null);
+                    setSelectedAssignment(null);
+                }}
                 task={selectedChore}
+                assignment={selectedAssignment}
                 currentUser={user || { id: 'u1', name: 'Me' } as any}
                 onEdit={() => {
                     console.log('Edit from dashboard');
                     setSelectedChore(null);
+                    setSelectedAssignment(null);
                 }}
                 onMarkDone={() => {
-                    console.log('Mark done from dashboard');
+                    if (selectedAssignment) {
+                        completeChore(selectedAssignment.id, user!.id);
+                    }
                     setSelectedChore(null);
+                    setSelectedAssignment(null);
                 }}
                 onNudge={(task, tone) => {
                     console.log(`Nudge from dashboard: ${task.name} (${tone})`);
                     setSelectedChore(null);
-                }}
-                onSnitch={(task, tone) => {
-                    console.log(`Snitch from dashboard: ${task.name} (${tone})`);
-                    setSelectedChore(null);
+                    setSelectedAssignment(null);
                 }}
             />
         </View>
@@ -267,6 +277,18 @@ const styles = StyleSheet.create({
     },
     selectedDot: {
         backgroundColor: COLORS.white,
+    },
+    // Fixed height container for chore list - scrolls internally
+    choreListContainer: {
+        height: 200, // Fixed height - shows ~3 items, scrolls if more
+        minHeight: 80, // Ensure minimum visibility
+    },
+    choreListScroll: {
+        flex: 1,
+    },
+    choreListContent: {
+        gap: SPACING.sm,
+        paddingBottom: SPACING.xs,
     },
     choreList: {
         gap: SPACING.sm,

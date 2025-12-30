@@ -72,7 +72,6 @@ export const HouseBasicsScreen: React.FC<HouseBasicsScreenProps> = ({
                             onChangeText={setHouseName}
                             placeholder="e.g., The Crib, Casa de Sol"
                             placeholderTextColor={COLORS.gray600}
-                            autoFocus
                             maxLength={30}
                         />
                         <Text style={styles.charCount}>{houseName.length}/30</Text>

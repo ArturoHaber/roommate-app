@@ -13,6 +13,7 @@ import {
   Modal,
   TextInput,
   Linking,
+  Switch,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Card, Avatar, HouseholdSettings, LinkAccountModal, AuthGateModal, useIsAnonymous } from '../components';
@@ -20,6 +21,9 @@ import { COLORS, SPACING, FONT_SIZE, FONT_WEIGHT, BORDER_RADIUS, SHADOWS } from 
 import { useAuthStore } from '../stores/useAuthStore';
 import { useHouseholdStore } from '../stores/useHouseholdStore';
 import { useChoreStore } from '../stores/useChoreStore';
+import { useNotificationPreferences, formatTimeForDisplay } from '../hooks/useNotificationPreferences';
+import { useNotifications, sendTestNotification } from '../hooks/useNotifications';
+import { NotificationSettingsScreen } from './NotificationSettingsScreen';
 
 type SettingsTab = 'personal' | 'household';
 
@@ -63,7 +67,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
   </TouchableOpacity>
 );
 
-export const ProfileScreen: React.FC = () => {
+export const SettingsTab: React.FC = () => {
   const { user, signOut, updateProfile, deleteAccount } = useAuthStore();
   const { household, leaveHousehold } = useHouseholdStore();
   const { getLeaderboard } = useChoreStore();
@@ -74,9 +78,33 @@ export const ProfileScreen: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('');
+  const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
+  const [emailVisible, setEmailVisible] = useState(true);
+
+  // Notification preferences from Supabase (with local state fallback)
+  const notifPrefs = useNotificationPreferences();
+  const notifHooks = useNotifications();
+
+  // Local state fallbacks for notification toggles
+  const [localNudges, setLocalNudges] = useState(true);
+  const [localChoreReminders, setLocalChoreReminders] = useState(true);
+  const [localCompletions, setLocalCompletions] = useState(true);
+  const [localHouseholdActivity, setLocalHouseholdActivity] = useState(true);
+  const [localDailyDigest, setLocalDailyDigest] = useState(false);
+  const [localQuietHours, setLocalQuietHours] = useState(false);
+  const [localReminderTime, setLocalReminderTime] = useState('08:00');
 
   // Check if user is anonymous
   const isUserAnonymous = useIsAnonymous();
+
+  // Show full-screen notification settings when active
+  if (isNotificationsVisible) {
+    return (
+      <NotificationSettingsScreen
+        onBack={() => setIsNotificationsVisible(false)}
+      />
+    );
+  }
 
   if (!user) return null;
 
@@ -232,7 +260,23 @@ export const ProfileScreen: React.FC = () => {
                   <Feather name="edit-2" size={16} color={COLORS.primary} />
                 </TouchableOpacity>
               </View>
-              <Text style={styles.userEmail}>{user.email}</Text>
+              <View style={styles.emailRow}>
+                {emailVisible ? (
+                  <Text style={styles.userEmail}>{user.email}</Text>
+                ) : (
+                  <Text style={styles.emailHiddenText}>Show email</Text>
+                )}
+                <TouchableOpacity
+                  onPress={() => setEmailVisible(!emailVisible)}
+                  style={styles.emailToggle}
+                >
+                  <Feather
+                    name={emailVisible ? 'eye' : 'eye-off'}
+                    size={16}
+                    color={COLORS.textTertiary}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Stats */}
@@ -278,13 +322,7 @@ export const ProfileScreen: React.FC = () => {
                 <SettingsItem
                   icon="bell"
                   label="Notifications"
-                  onPress={() => {
-                    if (Platform.OS === 'web') {
-                      window.alert('Push notification settings will be available soon!');
-                    } else {
-                      Alert.alert('Notifications', 'Push notification settings will be available soon!', [{ text: 'OK' }]);
-                    }
-                  }}
+                  onPress={() => setIsNotificationsVisible(true)}
                 />
                 <View style={styles.divider} />
                 <SettingsItem
@@ -488,6 +526,7 @@ export const ProfileScreen: React.FC = () => {
         onClose={() => setShowAuthGate(false)}
         action="settings"
       />
+
     </SafeAreaView>
   );
 };
@@ -559,6 +598,20 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.md,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  emailToggle: {
+    padding: SPACING.xs,
+  },
+  emailHiddenText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textTertiary,
+    fontStyle: 'italic',
   },
   statsCard: {
     marginBottom: SPACING.lg,
@@ -806,5 +859,165 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.error,
     textAlign: 'center',
+  },
+  // Notification Settings Modal Styles
+  notifScrollView: {
+    flex: 1,
+  },
+  notifItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray800,
+  },
+  notifInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: SPACING.md,
+  },
+  notifIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  notifText: {
+    flex: 1,
+  },
+  notifLabel: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: 2,
+  },
+  notifDesc: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+  },
+  notifNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.gray800,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    marginTop: SPACING.lg,
+  },
+  notifNoteText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    lineHeight: 16,
+  },
+  // New notification modal styles
+  permissionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.warning + '15',
+    borderWidth: 1,
+    borderColor: COLORS.warning + '30',
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  permissionTitle: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.warning,
+  },
+  permissionDesc: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  notifSectionTitle: {
+    fontSize: FONT_SIZE.xs,
+    fontWeight: '700',
+    color: COLORS.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  timeSelector: {
+    backgroundColor: COLORS.gray800,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  timeSelectorLabel: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.sm,
+  },
+  timeOptions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  timeOption: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: COLORS.gray700,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+  },
+  timeOptionActive: {
+    backgroundColor: COLORS.primary,
+  },
+  timeOptionText: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  timeOptionTextActive: {
+    color: COLORS.white,
+  },
+  quietHoursDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.gray800,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    marginTop: SPACING.sm,
+    gap: SPACING.lg,
+  },
+  quietHoursTime: {
+    alignItems: 'center',
+  },
+  quietHoursLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textTertiary,
+    marginBottom: 4,
+  },
+  quietHoursValue: {
+    fontSize: FONT_SIZE.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  testNotifButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary + '15',
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    marginTop: SPACING.lg,
+    gap: SPACING.sm,
+  },
+  testNotifText: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
 });

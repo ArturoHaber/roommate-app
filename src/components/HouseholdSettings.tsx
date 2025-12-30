@@ -101,6 +101,19 @@ export const HouseholdSettings = () => {
     };
 
     const openEditEssential = (type: 'wifi' | 'landlord', label: string, currentValue: string) => {
+        // Check admin permission before opening modal
+        if (!isCurrentUserAdmin) {
+            if (Platform.OS === 'web') {
+                window.alert('Only admins can edit household essentials.');
+            } else {
+                Alert.alert(
+                    'Admin Access Required',
+                    'Only household admins can edit WiFi, password, and emergency contact information.',
+                    [{ text: 'OK' }]
+                );
+            }
+            return;
+        }
         setEditingType(type);
         setEditingLabel(label);
         setEditingValue(currentValue);
@@ -243,20 +256,22 @@ export const HouseholdSettings = () => {
                         </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={styles.editButton}
-                        onPress={() => {
-                            if (isUserAnonymous) {
-                                setAuthGateAction('settings');
-                                setShowAuthGate(true);
-                                return;
-                            }
-                            setIsEditProfileVisible(true);
-                        }}
-                    >
-                        <Feather name="edit-2" size={16} color={COLORS.white} />
-                        <Text style={styles.editButtonText}>Edit House</Text>
-                    </TouchableOpacity>
+                    {isCurrentUserAdmin && (
+                        <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => {
+                                if (isUserAnonymous) {
+                                    setAuthGateAction('settings');
+                                    setShowAuthGate(true);
+                                    return;
+                                }
+                                setIsEditProfileVisible(true);
+                            }}
+                        >
+                            <Feather name="edit-2" size={16} color={COLORS.white} />
+                            <Text style={styles.editButtonText}>Edit House</Text>
+                        </TouchableOpacity>
+                    )}
                 </LinearGradient>
             </View>
 
@@ -332,12 +347,14 @@ export const HouseholdSettings = () => {
                                 {getEssentialValue('wifi', 'WiFi Name', 'Tap edit to add')}
                             </Text>
                         </View>
-                        <TouchableOpacity
-                            onPress={() => openEditEssential('wifi', 'WiFi Name', getEssentialValue('wifi', 'WiFi Name', ''))}
-                            style={styles.copyButton}
-                        >
-                            <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
+                        {isCurrentUserAdmin && (
+                            <TouchableOpacity
+                                onPress={() => openEditEssential('wifi', 'WiFi Name', getEssentialValue('wifi', 'WiFi Name', ''))}
+                                style={styles.copyButton}
+                            >
+                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        )}
                     </View>
                     <View style={styles.divider} />
                     <View style={styles.wifiRow}>
@@ -357,16 +374,22 @@ export const HouseholdSettings = () => {
                                 </TouchableOpacity>
                             </View>
                         </View>
-                        <TouchableOpacity style={styles.copyButton} onPress={() => {
-                            if (isWifiPassVisible) {
-                                copyToClipboard(getEssentialValue('wifi', 'Password', ''));
-                            } else {
-                                openEditEssential('wifi', 'Password', getEssentialValue('wifi', 'Password', ''));
-                            }
-                        }}>
-                            {/* If visible, show copy, else show edit? Or standard just edit? User asked for edit. Let's keep edit always accessible via button, but maybe copy if long press on text. Let's make this button always Edit for consistency unless we want a specific copy button. Existing UI had copy button on address. Let's keep it as Edit. */}
-                            <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                        </TouchableOpacity>
+                        {isWifiPassVisible && (
+                            <TouchableOpacity
+                                style={styles.copyButton}
+                                onPress={() => copyToClipboard(getEssentialValue('wifi', 'Password', ''))}
+                            >
+                                <Feather name="copy" size={18} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        )}
+                        {isCurrentUserAdmin && (
+                            <TouchableOpacity
+                                style={styles.copyButton}
+                                onPress={() => openEditEssential('wifi', 'Password', getEssentialValue('wifi', 'Password', ''))}
+                            >
+                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 
@@ -406,12 +429,14 @@ export const HouseholdSettings = () => {
                                     <Feather name="copy" size={18} color={COLORS.textSecondary} />
                                 </TouchableOpacity>
                             )}
-                            <TouchableOpacity
-                                onPress={() => openEditEssential('landlord', 'Number', getEssentialValue('landlord', 'Number', ''))}
-                                style={styles.copyButton}
-                            >
-                                <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
+                            {isCurrentUserAdmin && (
+                                <TouchableOpacity
+                                    onPress={() => openEditEssential('landlord', 'Number', getEssentialValue('landlord', 'Number', ''))}
+                                    style={styles.copyButton}
+                                >
+                                    <Feather name="edit-2" size={18} color={COLORS.textSecondary} />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 </View>
@@ -607,19 +632,37 @@ export const HouseholdSettings = () => {
                             </View>
                         )}
 
+                        {/* Admin-only notice for non-admins */}
+                        {!isCurrentUserAdmin && (
+                            <View style={styles.adminNotice}>
+                                <Feather name="lock" size={14} color={COLORS.textTertiary} />
+                                <Text style={styles.adminNoticeText}>
+                                    Only admins can manage members
+                                </Text>
+                            </View>
+                        )}
+
                         {/* Show promote if member is NOT an admin and NOT the owner */}
                         {selectedMember && !isAdmin(selectedMember.id) && !isOwner(selectedMember.id) && (
-                            <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('promote')}>
-                                <Feather name="shield" size={20} color={COLORS.textPrimary} />
-                                <Text style={styles.menuItemText}>Promote to Admin</Text>
+                            <TouchableOpacity
+                                style={[styles.menuItem, !isCurrentUserAdmin && styles.menuItemDisabled]}
+                                onPress={() => isCurrentUserAdmin && handleMemberAction('promote')}
+                                disabled={!isCurrentUserAdmin}
+                            >
+                                <Feather name="shield" size={20} color={isCurrentUserAdmin ? COLORS.textPrimary : COLORS.textTertiary} />
+                                <Text style={[styles.menuItemText, !isCurrentUserAdmin && styles.menuItemTextDisabled]}>Promote to Admin</Text>
                             </TouchableOpacity>
                         )}
 
                         {/* Show demote if member IS an admin but NOT the owner */}
                         {selectedMember && isAdmin(selectedMember.id) && !isOwner(selectedMember.id) && (
-                            <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('demote')}>
-                                <Feather name="shield-off" size={20} color={COLORS.warning} />
-                                <Text style={[styles.menuItemText, { color: COLORS.warning }]}>Demote from Admin</Text>
+                            <TouchableOpacity
+                                style={[styles.menuItem, !isCurrentUserAdmin && styles.menuItemDisabled]}
+                                onPress={() => isCurrentUserAdmin && handleMemberAction('demote')}
+                                disabled={!isCurrentUserAdmin}
+                            >
+                                <Feather name="shield-off" size={20} color={isCurrentUserAdmin ? COLORS.warning : COLORS.textTertiary} />
+                                <Text style={[styles.menuItemText, !isCurrentUserAdmin && styles.menuItemTextDisabled, isCurrentUserAdmin && { color: COLORS.warning }]}>Demote from Admin</Text>
                             </TouchableOpacity>
                         )}
 
@@ -627,9 +670,13 @@ export const HouseholdSettings = () => {
                         {selectedMember && !isOwner(selectedMember.id) && (
                             <>
                                 <View style={styles.modalDivider} />
-                                <TouchableOpacity style={styles.menuItem} onPress={() => handleMemberAction('remove')}>
-                                    <Feather name="user-x" size={20} color={COLORS.error} />
-                                    <Text style={[styles.menuItemText, { color: COLORS.error }]}>Remove from House</Text>
+                                <TouchableOpacity
+                                    style={[styles.menuItem, !isCurrentUserAdmin && styles.menuItemDisabled]}
+                                    onPress={() => isCurrentUserAdmin && handleMemberAction('remove')}
+                                    disabled={!isCurrentUserAdmin}
+                                >
+                                    <Feather name="user-x" size={20} color={isCurrentUserAdmin ? COLORS.error : COLORS.textTertiary} />
+                                    <Text style={[styles.menuItemText, !isCurrentUserAdmin && styles.menuItemTextDisabled, isCurrentUserAdmin && { color: COLORS.error }]}>Remove from House</Text>
                                 </TouchableOpacity>
                             </>
                         )}
@@ -1044,5 +1091,25 @@ const styles = StyleSheet.create({
         color: COLORS.white,
         fontWeight: '600',
         fontSize: FONT_SIZE.sm,
+    },
+    adminNotice: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.xs,
+        backgroundColor: COLORS.gray800,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.sm,
+        borderRadius: BORDER_RADIUS.md,
+        marginBottom: SPACING.md,
+    },
+    adminNoticeText: {
+        fontSize: FONT_SIZE.sm,
+        color: COLORS.textTertiary,
+    },
+    menuItemDisabled: {
+        opacity: 0.5,
+    },
+    menuItemTextDisabled: {
+        color: COLORS.textTertiary,
     },
 });

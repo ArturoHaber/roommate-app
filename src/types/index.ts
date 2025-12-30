@@ -76,11 +76,22 @@ export interface Chore {
   description: string;
   icon: string;
   room: RoomType;              // Keep for backward compat, use roomId in new code
-  frequency: 'daily' | 'weekly' | 'interval';
+  frequency: 'daily' | 'weekly' | 'interval' | 'as_needed';
   interval?: number;           // For "Every X days"
   assignedDays?: number[];     // 0-6 for Sunday-Saturday (Weekly)
   pointValue: number;
   isActive: boolean;
+  isPersonal: boolean;         // If true, always assigned to personalOwnerId
+  personalOwnerId?: string;    // Owner of personal chores (doesn't rotate)
+  createdAt: Date;
+}
+
+export interface ChoreCompletionCount {
+  id: string;
+  choreId: string;
+  userId: string;
+  completionCount: number;
+  lastCompletedAt: Date | null;
   createdAt: Date;
 }
 
